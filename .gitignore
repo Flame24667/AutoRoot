@@ -1,49 +1,24 @@
-```
-# Dependencies
-node_modules/
-
-# Build outputs
-dist/
-build/
-target/
-
 # Logs
+logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Environment variables
-.env
-.env.local
-*.env.*
+node_modules
+dist
+dist-ssr
+*.local
 
-# IDE specific
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-pip-log.txt
-pip-delete-this-directory.txt
-.pytest_cache/
-.mypy_cache/
-
-# Electron
-electron/dist/
-electron/build/
-
-# Vite
-.vite/
-
-# OS generated
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
 .DS_Store
-Thumbs.db
-```
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
