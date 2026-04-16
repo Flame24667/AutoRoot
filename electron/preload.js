@@ -1,4 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
-contextBridge.exposeInMainWorld('goAPI', {
-    call: (action, payload) => ipcRenderer.invoke('go:invoke', action, payload)
-});
+
+try {
+    contextBridge.exposeInMainWorld('goAPI', {
+        call: (action, payload) => ipcRenderer.invoke('go:invoke', action, payload)
+    });
+    console.log('[preload] goAPI injected');
+    } catch (err) {
+    console.error('[preload] Failed to inject goAPI:', err);
+}

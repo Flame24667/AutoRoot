@@ -1,20 +1,22 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import path from 'path'
+import { resolve } from 'path'
 
 export default defineConfig({
     plugins: [react()],
-    resolve: {
-        alias: {
-        '@': path.resolve(__dirname, './src'),
+    base: './', // ← CRITICAL: Makes asset paths relative for Electron
+    build: {
+        outDir: 'dist',
+        assetsDir: 'assets',
+        emptyOutDir: true,
+        rollupOptions: {
+        input: {
+            main: resolve(__dirname, 'index.html'),
+        },
         },
     },
     server: {
         port: 5173,
         strictPort: true,
-    },
-    build: {
-        outDir: 'dist',
-        emptyOutDir: true,
     },
 })

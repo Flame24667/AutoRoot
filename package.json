@@ -1,24 +1,28 @@
 {
-    "name": "my-desktop-app",
+    "name": "autoroot",
     "version": "1.0.0",
+    "description": "Offline desktop app for AutoRoot",
+    "author": "Your Name",
     "main": "electron/main.js",
     "scripts": {
         "dev:frontend": "cd frontend && npm run dev",
         "dev:electron": "wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .",
         "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:electron\"",
         "build:frontend": "cd frontend && npm run build",
-        "build:backend": "cd backend && go build -o ../bin/myapp-go",
-        "build": "npm run build:frontend && npm run build:backend",
-        "package:win": "npm run build && GOOS=windows GOARCH=amd64 go build -o bin/myapp-go.exe && electron-builder --win",
-        "package:mac": "npm run build && GOOS=darwin GOARCH=amd64 go build -o bin/myapp-go && electron-builder --mac",
-        "package:linux": "npm run build && GOOS=linux GOARCH=amd64 go build -o bin/myapp-go && electron-builder --linux",
+        "build:backend:win": "cd backend && cross-env GOOS=windows GOARCH=amd64 go build -o ../bin/myapp-go.exe",
+        "build:backend:mac": "cd backend && cross-env GOOS=darwin GOARCH=amd64 go build -o ../bin/myapp-go",
+        "build:backend:linux": "cd backend && cross-env GOOS=linux GOARCH=amd64 go build -o ../bin/myapp-go",
+        "build": "npm run build:frontend && npm run build:backend:win",
+        "package:win": "npm run build:frontend && npm run build:backend:win && npx electron-builder --win",
+        "package:mac": "npm run build:frontend && npm run build:backend:mac && npx electron-builder --mac",
+        "package:linux": "npm run build:frontend && npm run build:backend:linux && npx electron-builder --linux",
         "clean": "npx rimraf bin/* frontend/dist release/*"
     },
     "devDependencies": {
         "concurrently": "^9.1.0",
         "cross-env": "^7.0.3",
-        "electron": "^41.2.1",
-        "electron-builder": "^26.8.1",
+        "electron": "^33.2.0",
+        "electron-builder": "^25.1.8",
         "wait-on": "^8.0.1"
     }
 }

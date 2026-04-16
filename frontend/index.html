@@ -4,10 +4,19 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>AutoRoot</title>
+        <!-- ✅ Content Security Policy for Electron -->
+        <meta http-equiv="Content-Security-Policy" 
+            content="default-src 'self'; 
+                    script-src 'self' 'unsafe-inline'; 
+                    style-src 'self' 'unsafe-inline'; 
+                    img-src 'self' data:; 
+                    font-src 'self'; 
+                    connect-src 'self' file:;">
     </head>
     <body>
         <div id="root"></div>
-        <!-- This script tag is REQUIRED for Vite + React -->
+        <!-- ✅ Reference the SOURCE entry point, NOT the built asset -->
+        <!-- Vite will automatically replace this with the correct hashed filename during build -->
         <script type="module" src="/src/main.jsx"></script>
     </body>
 </html>

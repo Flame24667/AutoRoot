@@ -1,9 +1,33 @@
 {
-    "appId": "com.yourapp.desktop",
-    "files": ["electron/**/*", "frontend/dist/**/*"],
-    "extraResources": ["bin/*"],
-    "directories": { "output": "release" },
-    "win": { "target": "nsis" },
-    "mac": { "target": "dmg" },
-    "linux": { "target": "AppImage" }
+    "appId": "com.autoroot.desktop",
+    "productName": "AutoRoot",
+    "files": [
+        "electron/**/*",
+        "frontend/dist/**/*"
+    ],
+    "extraResources": [
+        "bin/*"
+    ],
+    "directories": {
+        "output": "release"
+    },
+    "win": {
+        "target": [
+        {
+            "target": "nsis",
+            "arch": ["x64"]
+        }
+        ],
+        "icon": "build/icon.ico",
+        "forceCodeSigning": false,
+        "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+        "oneClick": false,
+        "allowToChangeInstallationDirectory": true,
+        "createDesktopShortcut": true,
+        "shortcutName": "AutoRoot",
+        "runAfterFinish": true
+    },
+    "publish": null
 }
