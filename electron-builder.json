@@ -1,0 +1,9 @@
+{
+    "appId": "com.yourapp.desktop",
+    "files": ["electron/**/*", "frontend/dist/**/*"],
+    "extraResources": ["bin/*"],
+    "directories": { "output": "release" },
+    "win": { "target": "nsis" },
+    "mac": { "target": "dmg" },
+    "linux": { "target": "AppImage" }
+}

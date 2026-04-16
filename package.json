@@ -1,30 +1,24 @@
 {
-  "name": "autoroot-desktop",
-  "private": true,
-  "version": "1.0.0",
-  "description": "Universal Autoroot Desktop - Offline-First Rooting Solution",
-  "main": "electron/main.js",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "zustand": "^5.0.0"
-  },
-  "devDependencies": {
-    "@eslint/js": "^9.39.4",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "eslint": "^9.39.4",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.5.2",
-    "globals": "^17.4.0",
-    "vite": "^8.0.4"
-  }
+    "name": "my-desktop-app",
+    "version": "1.0.0",
+    "main": "electron/main.js",
+    "scripts": {
+        "dev:frontend": "cd frontend && npm run dev",
+        "dev:electron": "wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .",
+        "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:electron\"",
+        "build:frontend": "cd frontend && npm run build",
+        "build:backend": "cd backend && go build -o ../bin/myapp-go",
+        "build": "npm run build:frontend && npm run build:backend",
+        "package:win": "npm run build && GOOS=windows GOARCH=amd64 go build -o bin/myapp-go.exe && electron-builder --win",
+        "package:mac": "npm run build && GOOS=darwin GOARCH=amd64 go build -o bin/myapp-go && electron-builder --mac",
+        "package:linux": "npm run build && GOOS=linux GOARCH=amd64 go build -o bin/myapp-go && electron-builder --linux",
+        "clean": "npx rimraf bin/* frontend/dist release/*"
+    },
+    "devDependencies": {
+        "concurrently": "^9.1.0",
+        "cross-env": "^7.0.3",
+        "electron": "^41.2.1",
+        "electron-builder": "^26.8.1",
+        "wait-on": "^8.0.1"
+    }
 }

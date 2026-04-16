@@ -1,68 +1,51 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
+const { spawn } = require('child_process');
 const path = require('path');
 
-let mainWindow;
+let goProcess;
+const pending = new Map();
+let reqId = 0;
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
-    },
-    icon: path.join(__dirname, '../public/favicon.svg')
-  });
+function startGo() {
+    const ext = process.platform === 'win32' ? '.exe' : '';
+    const goPath = path.join(__dirname, '..', 'bin', `myapp-go${ext}`);
+    
+    goProcess = spawn(goPath, { stdio: ['pipe', 'pipe', 'inherit'] });
 
-  // Load from Vite dev server or built files
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-  
-  if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
-  }
+    let buffer = '';
+    goProcess.stdout.on('data', (chunk) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete line
+        for (const line of lines) {
+        if (!line.trim()) continue;
+        const resp = JSON.parse(line);
+        const p = pending.get(resp.id);
+        if (p) {
+            if (resp.error) p.reject(new Error(resp.error));
+            else p.resolve(resp.result);
+            pending.delete(resp.id);
+        }
+        }
+    });
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+    goProcess.on('error', (err) => console.error('Go process failed:', err));
+    goProcess.on('close', (code) => console.log('Go exited:', code));
 }
 
+ipcMain.handle('go:invoke', async (_evt, action, payload) => {
+    return new Promise((resolve, reject) => {
+        const id = `req_${++reqId}`;
+        pending.set(id, { resolve, reject });
+        const msg = JSON.stringify({ id, action, payload }) + '\n';
+        goProcess.stdin.write(msg);
+    });
+});
+
 app.whenReady().then(() => {
-  createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
+    startGo();
+    const win = new BrowserWindow({ width: 1000, height: 700, webPreferences: { preload: path.join(__dirname, 'preload.js') } });
+    win.loadURL('http://localhost:5173'); // dev, or load file in prod
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-// IPC Handlers for USB Detection and Flashing
-ipcMain.handle('get-device-info', async () => {
-  // This will be implemented with actual USB detection logic
-  return { connected: false, device: null };
-});
-
-ipcMain.handle('start-flash', async (event, config) => {
-  // This will trigger the backend flashing process
-  return { success: false, message: 'Flash not implemented yet' };
-});
-
-ipcMain.handle('check-drivers', async () => {
-  // Check if required drivers are installed
-  return { installed: true, missing: [] };
-});
-
-ipcMain.handle('get-assets', async () => {
-  // Return list of available assets from local warehouse
-  return [];
-});
+app.on('before-quit', () => goProcess?.kill());
