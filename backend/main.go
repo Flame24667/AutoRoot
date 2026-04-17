@@ -55,7 +55,6 @@ func runAdb(args ...string) (string, string, error) {
 		return "", "", fmt.Errorf("ADB not found. Install Android Platform Tools and add to PATH.")
 	}
 
-	// Ensure daemon is running
 	exec.Command(adbPath, "start-server").Run()
 
 	cmd := exec.Command(adbPath, args...)
@@ -64,6 +63,37 @@ func runAdb(args ...string) (string, string, error) {
 	cmd.Stderr = &stderr
 	err = cmd.Run()
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), err
+}
+
+func getMarketingName(brand, model string) string {
+	// 1. Try exact match first
+	if name, ok := deviceNames[model]; ok {
+		return name
+	}
+	
+	// 2. Try prefix matching (e.g., "ASUS_AI2401_D" matches "ASUS_AI2401")
+	for code, name := range deviceNames {
+		if strings.HasPrefix(model, code) {
+			return name
+		}
+	}
+	
+	// 3. Try without "SM-" prefix for Samsung
+	if brand == "samsung" && strings.HasPrefix(model, "SM-") {
+		baseModel := strings.TrimPrefix(model, "SM-")
+		if name, ok := deviceNames[baseModel]; ok {
+			return name
+		}
+		// Also try prefix matching on base model
+		for code, name := range deviceNames {
+			if strings.HasPrefix(baseModel, code) {
+				return name
+			}
+		}
+	}
+	
+	// 4. Return original model if no match found
+	return model
 }
 
 func getDeviceInfo() (interface{}, string) {
@@ -94,20 +124,47 @@ func getDeviceInfo() (interface{}, string) {
 	}
 
 	deviceID := fields[0]
-	model, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.model")
+	
 	brand, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.brand")
+	model, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.model")
+	device, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.device")
+	marketName, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.marketname")
 	version, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.release")
+	security, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.security_patch")
+	sdk, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.sdk")
 	rootOut, _, _ := runAdb("-s", deviceID, "shell", "su", "-c", "id")
 	
+	brand = strings.TrimSpace(brand)
+	model = strings.TrimSpace(model)
+	device = strings.TrimSpace(device)
+	marketName = strings.TrimSpace(marketName)
+	version = strings.TrimSpace(version)
+	security = strings.TrimSpace(security)
+	sdk = strings.TrimSpace(sdk)
+	
+	var displayName string
+	if marketName != "" {
+		displayName = marketName
+	} else {
+		displayName = getMarketingName(strings.ToLower(brand), model)
+	}
+	
+	if displayName == model && brand == "samsung" && strings.HasPrefix(model, "SM-") {
+		displayName = fmt.Sprintf("%s (%s)", model, device)
+	}
+	
 	return map[string]interface{}{
-		"brand":          strings.TrimSpace(brand),
-		"model":          strings.TrimSpace(model),
-		"androidVersion": strings.TrimSpace(version),
+		"brand":          brand,
+		"model":          model,
+		"displayName":    displayName,
+		"device":         device,
+		"androidVersion": version,
+		"sdkVersion":     sdk,
+		"securityPatch":  security,
 		"rooted":         strings.Contains(rootOut, "uid=0"),
 	}, ""
 }
 
 func rootDevice() (interface{}, string) {
-	// Placeholder: Replace with actual exploit/flash logic
 	return map[string]interface{}{"message": "Root process initiated. Monitor device screen."}, ""
 }

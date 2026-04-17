@@ -1,16 +1,14 @@
 {
     "appId": "com.autoroot.desktop",
     "productName": "AutoRoot",
-    "files": [
-        "electron/**/*",
-        "frontend/dist/**/*"
-    ],
+    "files": ["electron/**/*", "frontend/dist/**/*"],
     "extraResources": ["bin/*"],
     "directories": { "output": "release" },
     "win": {
         "target": [{ "target": "nsis", "arch": ["x64"] }],
         "forceCodeSigning": false,
-        "verifyUpdateCodeSignature": false
+        "verifyUpdateCodeSignature": false,
+        "signtoolOptions": null
     },
     "nsis": {
         "oneClick": false,
