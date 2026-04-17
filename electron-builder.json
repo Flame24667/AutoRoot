@@ -5,20 +5,10 @@
         "electron/**/*",
         "frontend/dist/**/*"
     ],
-    "extraResources": [
-        "bin/*"
-    ],
-    "directories": {
-        "output": "release"
-    },
+    "extraResources": ["bin/*"],
+    "directories": { "output": "release" },
     "win": {
-        "target": [
-        {
-            "target": "nsis",
-            "arch": ["x64"]
-        }
-        ],
-        "icon": "build/icon.ico",
+        "target": [{ "target": "nsis", "arch": ["x64"] }],
         "forceCodeSigning": false,
         "verifyUpdateCodeSignature": false
     },
@@ -26,8 +16,7 @@
         "oneClick": false,
         "allowToChangeInstallationDirectory": true,
         "createDesktopShortcut": true,
-        "shortcutName": "AutoRoot",
-        "runAfterFinish": true
+        "shortcutName": "AutoRoot"
     },
     "publish": null
 }

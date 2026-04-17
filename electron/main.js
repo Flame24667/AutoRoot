@@ -5,157 +5,94 @@ const fs = require('fs');
 
 let goProcess;
 let mainWindow;
-const pendingRequests = new Map();
-let requestId = 0;
+const pending = new Map();
+let reqId = 0;
+const isDev = !app.isPackaged;
 
-// ✅ Correct dev/prod detection
-const isDev = !app.isPackaged || process.env.NODE_ENV === 'development';
-
-function getGoBinaryPath() {
+function getGoPath() {
     const ext = process.platform === 'win32' ? '.exe' : '';
-    const binaryName = `myapp-go${ext}`;
-    
-    if (isDev) {
-        // Dev: binary is in project root /bin
-        return path.join(__dirname, '..', 'bin', binaryName);
-    } else {
-        // Prod: binary is in resources/bin (bundled by electron-builder)
-        return path.join(process.resourcesPath, 'bin', binaryName);
-    }
+    const bin = `myapp-go${ext}`;
+    return isDev 
+        ? path.join(__dirname, '..', 'bin', bin)
+        : path.join(process.resourcesPath, 'bin', bin);
 }
 
 function getFrontendPath() {
-    if (isDev) {
-        return 'http://localhost:5173';
-    } else {
-        // Prod: Load built React files from packaged resources
-        // electron-builder puts files in resources/app/
-        return path.join(process.resourcesPath, 'app', 'frontend', 'dist', 'index.html');
-    }
+    if (isDev) return 'http://localhost:5173';
+    
+    // In packaged app, files live inside resources/app.asar (or unpacked)
+    const indexPath = path.join(app.getAppPath(), 'frontend', 'dist', 'index.html');
+    console.log('[Main] 📂 Resolved path:', indexPath);
+    console.log('[Main] ✅ Exists?', fs.existsSync(indexPath));
+    return indexPath;
 }
 
-function startGoBackend() {
-    const goPath = getGoBinaryPath();
-    
-    // Windows-specific: hide the console window
-    const spawnOptions = {
-        stdio: ['pipe', 'pipe', 'pipe'], // Hide stderr too, or use 'inherit' to see errors
-        cwd: isDev ? process.cwd() : process.resourcesPath,
-        windowsHide: true, // ← THIS HIDES THE COMMAND WINDOW ON WINDOWS
-    };
-    
-    // Verify binary exists
+function startGo() {
+    const goPath = getGoPath();
     if (!fs.existsSync(goPath)) {
-        console.error('[main] ❌ Go binary not found at:', goPath);
+        console.error('[Main] ❌ Go binary missing:', goPath);
         return;
     }
     
-    console.log('[main] 🚀 Starting Go backend:', goPath);
-    
-    goProcess = spawn(goPath, spawnOptions);
+    console.log('[Main] 🚀 Starting Go:', goPath);
+    goProcess = spawn(goPath, { 
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+        cwd: isDev ? process.cwd() : process.resourcesPath
+    });
 
     let buffer = '';
-    goProcess.stdout.on('data', (chunk) => {
+    goProcess.stdout.on('data', chunk => {
         buffer += chunk.toString();
         const lines = buffer.split('\n');
         buffer = lines.pop();
-        
         for (const line of lines) {
         if (!line.trim()) continue;
         try {
-            const response = JSON.parse(line);
-            const pending = pendingRequests.get(response.id);
-            if (pending) {
-            if (response.error) {
-                pending.reject(new Error(response.error));
-            } else {
-                pending.resolve(response.result);
+            const res = JSON.parse(line);
+            const p = pending.get(res.id);
+            if (p) {
+            if (res.error) p.reject(new Error(res.error));
+            else p.resolve(res.result);
+            pending.delete(res.id);
             }
-            pendingRequests.delete(response.id);
-            }
-        } catch (err) {
-            console.error('[main] Failed to parse Go response:', err);
-        }
+        } catch (e) { console.error('[Main] JSON parse error:', e); }
         }
     });
 
-    goProcess.on('error', (err) => {
-        console.error('[main] Go process error:', err);
-    });
-    
-    goProcess.on('close', (code) => {
-        console.log(`[main] Go process exited with code ${code}`);
-    });
+    goProcess.on('close', code => console.log(`[Main] Go exited: ${code}`));
 }
 
 function createWindow() {
     mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
-    title: 'AutoRoot',
-    webPreferences: {
+        width: 1200, height: 800,
+        title: 'AutoRoot',
+        webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
         preload: path.join(__dirname, 'preload.js'),
-        webSecurity: false, // ← DISABLES CSP (works but less secure)
+        webSecurity: false, // 🔑 Temporarily disabled to rule out CSP blocking file://
         allowRunningInsecureContent: true,
         },
     });
 
     const target = getFrontendPath();
-    console.log('[main] Loading:', target);
-    
     if (isDev) {
         mainWindow.loadURL(target);
         mainWindow.webContents.openDevTools();
     } else {
         mainWindow.loadFile(target);
     }
-
-    mainWindow.on('closed', () => {
-        mainWindow = null;
-    });
 }
 
-// IPC bridge: React → Go
-ipcMain.handle('go:invoke', async (_event, action, payload) => {
+ipcMain.handle('go:invoke', async (_e, action, payload) => {
     return new Promise((resolve, reject) => {
-        const id = `req_${++requestId}`;
-        pendingRequests.set(id, { resolve, reject });
-        
-        const message = JSON.stringify({ id, action, payload }) + '\n';
-        if (goProcess?.stdin?.writable) {
-        goProcess.stdin.write(message);
-        } else {
-        pendingRequests.delete(id);
-        reject(new Error('Go backend not ready'));
-        }
+        const id = `req_${++reqId}`;
+        pending.set(id, { resolve, reject });
+        goProcess?.stdin?.write(JSON.stringify({ id, action, payload }) + '\n');
     });
 });
 
-app.whenReady().then(() => {
-    startGoBackend();
-    createWindow();
-    
-    app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
-        }
-    });
-});
-
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
-});
-
-// Graceful shutdown
-app.on('before-quit', () => {
-    if (goProcess) {
-        console.log('[main] Shutting down Go backend...');
-        goProcess.kill();
-    }
-});
+app.whenReady().then(() => { startGo(); createWindow(); });
+app.on('window-all-closed', () => process.platform !== 'darwin' && app.quit());
+app.on('before-quit', () => goProcess?.kill());
