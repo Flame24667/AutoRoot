@@ -55,7 +55,6 @@ func runAdb(args ...string) (string, string, error) {
 		return "", "", fmt.Errorf("ADB not found. Install Android Platform Tools and add to PATH.")
 	}
 
-	// Ensure daemon is running
 	exec.Command(adbPath, "start-server").Run()
 
 	cmd := exec.Command(adbPath, args...)
@@ -64,6 +63,37 @@ func runAdb(args ...string) (string, string, error) {
 	cmd.Stderr = &stderr
 	err = cmd.Run()
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), err
+}
+
+func getMarketingName(brand, model string) string {
+	// 1. Try exact match first
+	if name, ok := deviceNames[model]; ok {
+		return name
+	}
+	
+	// 2. Try prefix matching (e.g., "ASUS_AI2401_D" matches "ASUS_AI2401")
+	for code, name := range deviceNames {
+		if strings.HasPrefix(model, code) {
+			return name
+		}
+	}
+	
+	// 3. Try without "SM-" prefix for Samsung
+	if brand == "samsung" && strings.HasPrefix(model, "SM-") {
+		baseModel := strings.TrimPrefix(model, "SM-")
+		if name, ok := deviceNames[baseModel]; ok {
+			return name
+		}
+		// Also try prefix matching on base model
+		for code, name := range deviceNames {
+			if strings.HasPrefix(baseModel, code) {
+				return name
+			}
+		}
+	}
+	
+	// 4. Return original model if no match found
+	return model
 }
 
 func getDeviceInfo() (interface{}, string) {
@@ -140,6 +170,5 @@ func getDeviceInfo() (interface{}, string) {
 }
 
 func rootDevice() (interface{}, string) {
-	// Placeholder: Replace with actual exploit/flash logic
 	return map[string]interface{}{"message": "Root process initiated. Monitor device screen."}, ""
 }

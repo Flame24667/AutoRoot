@@ -105,14 +105,21 @@ function App() {
             <p style={styles.hint}>Auto-detects when phone authorizes ADB.</p>
           </div>
         )}
-
         {step === 'ready' && device && (
           <>
             <h2 style={styles.stepTitle}>Device Connected</h2>
+            <div style={styles.deviceName}>
+              {/* Prevents duplicate text like "ASUS_AI2401_D ASUS_AI2401_D" */}
+              {device.displayName && device.displayName !== device.model
+                ? device.displayName
+                : `${device.brand} ${device.model}`}
+            </div>
             <div style={styles.infoGrid}>
               <div><b>Brand:</b> {device.brand}</div>
-              <div><b>Model:</b> {device.model}</div>
-              <div><b>Android:</b> {device.androidVersion}</div>
+              <div><b>Model Code:</b> {device.model}</div>
+              {device.device && <div><b>Codename:</b> {device.device}</div>}
+              <div><b>Android:</b> {device.androidVersion} (SDK {device.sdkVersion})</div>
+              {device.securityPatch && <div><b>Security Patch:</b> {device.securityPatch}</div>}
               <div><b>Rooted:</b> {device.rooted ? 'Yes ✓' : 'No'}</div>
             </div>
             <button 
@@ -193,7 +200,8 @@ const styles = {
   spinner: { width: '36px', height: '36px', border: '3px solid #334155', borderTop: '3px solid #38bdf8', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 1rem' },
   statusText: { fontSize: '1rem', color: '#e2e8f0', margin: '0.5rem 0' },
   hint: { color: '#64748b', fontSize: '0.85rem', marginTop: '0.5rem' },
-  infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', background: '#0f172a', padding: '1rem', borderRadius: '10px', marginBottom: '1.25rem', color: '#cbd5e1', fontSize: '0.95rem' }
+  infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', background: '#0f172a', padding: '1rem', borderRadius: '10px', marginBottom: '1.25rem', color: '#cbd5e1', fontSize: '0.95rem' },
+  deviceName: { fontSize: '1.3rem', fontWeight: '600', color: '#38bdf8', textAlign: 'center', marginBottom: '1rem', padding: '0.75rem', background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.1), rgba(129, 140, 248, 0.1))', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.3)' }
 };
 
 const styleSheet = document.createElement("style");
