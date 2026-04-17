@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,7 +23,6 @@ type Response struct {
 }
 
 func main() {
-	fmt.Println("[Go] Backend started. Waiting for commands...")
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		var req Request
@@ -36,10 +36,10 @@ func main() {
 		switch req.Action {
 		case "ping":
 			resp.Result = "pong"
-		case "detectDevice":
-			resp.Result, resp.Error = detectDevice()
+		case "getDeviceInfo":
+			resp.Result, resp.Error = getDeviceInfo()
 		case "rootDevice":
-			resp.Result, resp.Error = rootDevice(req.Payload)
+			resp.Result, resp.Error = rootDevice()
 		default:
 			resp.Error = "unknown action"
 		}
@@ -49,60 +49,65 @@ func main() {
 	}
 }
 
-// --- LOGIC FUNCTIONS ---
-
-func detectDevice() (interface{}, string) {
-	// 1. Check if 'adb' is available on the system
-	_, err := exec.LookPath("adb")
+func runAdb(args ...string) (string, string, error) {
+	adbPath, err := exec.LookPath("adb")
 	if err != nil {
-		// Fallback: Return mock data if ADB isn't installed so you can test the UI
-		return map[string]interface{}{
-			"brand":          "Mock Device (ADB not found)",
-			"model":          "Test Phone",
-			"androidVersion": "14.0",
-			"rooted":         false,
-		}, ""
+		return "", "", fmt.Errorf("ADB not found. Install Android Platform Tools and add to PATH.")
 	}
 
-	// 2. Run 'adb devices' to see if a phone is connected
-	cmd := exec.Command("adb", "devices")
-	out, err := cmd.Output()
+	// Ensure daemon is running
+	exec.Command(adbPath, "start-server").Run()
+
+	cmd := exec.Command(adbPath, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), err
+}
+
+func getDeviceInfo() (interface{}, string) {
+	out, stderr, err := runAdb("devices")
 	if err != nil {
-		return nil, "ADB error: " + err.Error()
+		return nil, fmt.Sprintf("ADB failed: %v\n%s", err, stderr)
 	}
 
-	// 3. Parse output (simplified)
-	// ADB output looks like:
-	// List of devices attached
-	// 1234567890	device
-	lines := strings.Split(string(out), "\n")
-	if len(lines) < 3 || !strings.Contains(lines[2], "device") {
-		return nil, "No device connected"
+	lines := strings.Split(out, "\n")
+	if len(lines) < 2 {
+		return nil, "No devices found. Check USB connection & drivers."
 	}
 
-	// 4. Get device details
-	deviceID := strings.Fields(lines[2])[0]
-	
-	model, _ := exec.Command("adb", "-s", deviceID, "shell", "getprop", "ro.product.model").Output()
-	brand, _ := exec.Command("adb", "-s", deviceID, "shell", "getprop", "ro.product.brand").Output()
-	version, _ := exec.Command("adb", "-s", deviceID, "shell", "getprop", "ro.build.version.release").Output()
-	
-	rootCheck, _ := exec.Command("adb", "-s", deviceID, "shell", "su", "-c", "id").Output()
-	isRooted := strings.Contains(string(rootCheck), "uid=0")
+	fields := strings.Fields(lines[1])
+	if len(fields) < 2 {
+		return nil, "Malformed ADB output."
+	}
 
+	status := fields[1]
+	if status == "unauthorized" {
+		return nil, "Device unauthorized. Check phone screen & tap 'Allow USB Debugging'."
+	}
+	if status == "offline" {
+		return nil, "Device offline. Reconnect USB cable."
+	}
+	if status != "device" {
+		return nil, fmt.Sprintf("Unknown device status: %s", status)
+	}
+
+	deviceID := fields[0]
+	model, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.model")
+	brand, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.brand")
+	version, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.release")
+	rootOut, _, _ := runAdb("-s", deviceID, "shell", "su", "-c", "id")
+	
 	return map[string]interface{}{
-		"brand":          strings.TrimSpace(string(brand)),
-		"model":          strings.TrimSpace(string(model)),
-		"androidVersion": strings.TrimSpace(string(version)),
-		"rooted":         isRooted,
+		"brand":          strings.TrimSpace(brand),
+		"model":          strings.TrimSpace(model),
+		"androidVersion": strings.TrimSpace(version),
+		"rooted":         strings.Contains(rootOut, "uid=0"),
 	}, ""
 }
 
-func rootDevice(payload interface{}) (interface{}, string) {
-	// TODO: Insert actual rooting logic here
-	// Example: exec.Command("adb", "shell", "su", "-c", "mount -o remount,rw /system").Run()
-	
-	return map[string]interface{}{
-		"message": "Root process simulated successfully.",
-	}, ""
+func rootDevice() (interface{}, string) {
+	// Placeholder: Replace with actual exploit/flash logic
+	return map[string]interface{}{"message": "Root process initiated. Monitor device screen."}, ""
 }
