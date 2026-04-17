@@ -1,8 +1,0 @@
-# Local Firmware Warehouse
-
-Place your firmware files here:
-- .tar files for Samsung (Odin)
-- .img files for Fastboot devices
-- .zip files for generic packages
-
-The app will automatically index these files and map them to device models.
