@@ -71,9 +71,14 @@ function App() {
       <header style={styles.header}>
         <h1 style={styles.title}>🔓 AutoRoot</h1>
         <p style={styles.subtitle}>Secure Android Root Automation</p>
+        <button style={styles.noteBtn} onClick={() => alert('Welcome to AutoRoot!')}>
+          📝 Note
+        </button>
       </header>
 
       <div style={styles.card}>
+          {/* Optionally, show the note text somewhere on the main screen */}
+          {/* <div style={styles.noteText}>Welcome to AutoRoot</div> */}
         {step === 'guide' && (
           <>
             <h2 style={styles.stepTitle}>Step 1: Enable USB Debugging</h2>
@@ -147,6 +152,30 @@ function App() {
 }
 
 const styles = {
+    noteBtn: {
+      marginTop: '0.5rem',
+      background: 'linear-gradient(90deg, #38bdf8, #818cf8)',
+      color: '#fff',
+      border: 'none',
+      borderRadius: '8px',
+      padding: '0.5rem 1.2rem',
+      fontWeight: 600,
+      fontSize: '1rem',
+      cursor: 'pointer',
+      boxShadow: '0 2px 8px rgba(56,189,248,0.15)',
+      transition: 'background 0.2s',
+    },
+    noteText: {
+      margin: '1rem 0',
+      padding: '0.75rem 1rem',
+      background: '#334155',
+      borderRadius: '8px',
+      color: '#f8fafc',
+      fontWeight: 500,
+      textAlign: 'center',
+      fontSize: '1.05rem',
+      boxShadow: '0 2px 8px rgba(56,189,248,0.10)',
+    },
   container: {
     height: '100vh',
     overflowY: 'auto',

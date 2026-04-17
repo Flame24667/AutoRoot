@@ -124,43 +124,47 @@ func getDeviceInfo() (interface{}, string) {
 	}
 
 	deviceID := fields[0]
-	
-	brand, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.brand")
 	model, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.model")
-	device, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.device")
-	marketName, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.marketname")
+	brand, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.brand")
 	version, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.release")
-	security, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.security_patch")
-	sdk, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.sdk")
 	rootOut, _, _ := runAdb("-s", deviceID, "shell", "su", "-c", "id")
-	
-	brand = strings.TrimSpace(brand)
-	model = strings.TrimSpace(model)
-	device = strings.TrimSpace(device)
-	marketName = strings.TrimSpace(marketName)
-	version = strings.TrimSpace(version)
-	security = strings.TrimSpace(security)
-	sdk = strings.TrimSpace(sdk)
-	
-	var displayName string
-	if marketName != "" {
-		displayName = marketName
-	} else {
-		displayName = getMarketingName(strings.ToLower(brand), model)
+	typeVal, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.characteristics")
+	osVersion, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.release")
+	binary, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.incremental")
+	ram, _, _ := runAdb("-s", deviceID, "shell", "cat", "/proc/meminfo")
+	cpu, _, _ := runAdb("-s", deviceID, "shell", "cat", "/proc/cpuinfo")
+	kernel, _, _ := runAdb("-s", deviceID, "shell", "uname", "-a")
+
+	// Parse RAM (MemTotal)
+	ramTotal := ""
+	ramLines := strings.Split(ram, "\n")
+	for _, line := range ramLines {
+		if strings.HasPrefix(line, "MemTotal:") {
+			ramTotal = strings.TrimSpace(line)
+			break
+		}
 	}
-	
-	if displayName == model && brand == "samsung" && strings.HasPrefix(model, "SM-") {
-		displayName = fmt.Sprintf("%s (%s)", model, device)
+
+	// Parse CPU (model name)
+	cpuModel := ""
+	cpuLines := strings.Split(cpu, "\n")
+	for _, line := range cpuLines {
+		if strings.HasPrefix(line, "Hardware") || strings.HasPrefix(line, "model name") {
+			cpuModel = strings.TrimSpace(line)
+			break
+		}
 	}
-	
+
 	return map[string]interface{}{
-		"brand":          brand,
-		"model":          model,
-		"displayName":    displayName,
-		"device":         device,
-		"androidVersion": version,
-		"sdkVersion":     sdk,
-		"securityPatch":  security,
+		"brand":          strings.TrimSpace(brand),
+		"model":          strings.TrimSpace(model),
+		"phoneType":      strings.TrimSpace(typeVal),
+		"androidVersion": strings.TrimSpace(version),
+		"osVersion":      strings.TrimSpace(osVersion),
+		"binary":         strings.TrimSpace(binary),
+		"ram":            ramTotal,
+		"cpu":            cpuModel,
+		"kernelVersion":  strings.TrimSpace(kernel),
 		"rooted":         strings.Contains(rootOut, "uid=0"),
 	}, ""
 }
