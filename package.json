@@ -1,23 +1,4 @@
 {
-    "appId": "com.autoroot.desktop",
-    "productName": "AutoRoot",
-    "files": ["electron/**/*", "frontend/dist/**/*"],
-    "extraResources": ["bin/*"],
-    "directories": { "output": "release" },
-    "win": {
-        "target": [{ "target": "nsis", "arch": ["x64"] }],
-        "forceCodeSigning": false,
-        "verifyUpdateCodeSignature": false,
-        "signtoolOptions": null
-    },
-    "nsis": {
-        "oneClick": false,
-        "allowToChangeInstallationDirectory": true,
-        "createDesktopShortcut": true,
-        "shortcutName": "AutoRoot"
-    },
-    "publish": null
-}
     "name": "autoroot",
     "version": "1.0.0",
     "description": "Offline desktop app for AutoRoot",
