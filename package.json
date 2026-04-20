@@ -16,7 +16,9 @@
         "package:win": "npm run build:frontend && npm run build:backend:win && npx electron-builder --win",
         "package:mac": "npm run build:frontend && npm run build:backend:mac && npx electron-builder --mac",
         "package:linux": "npm run build:frontend && npm run build:backend:linux && npx electron-builder --linux",
-        "clean": "npx rimraf bin/* frontend/dist release/*"
+        "clean": "npx rimraf bin/* frontend/dist release/*",
+        "setup": "cd setup && npm install && node setup.js",
+        "setup:gui": "cd setup && npm install && node setup-gui.js"
     },
     "devDependencies": {
         "concurrently": "^9.1.0",

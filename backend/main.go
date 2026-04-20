@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"path/filepath"
 )
 
 type Request struct {
@@ -68,25 +69,32 @@ func runAdb(args ...string) (string, string, error) {
 }
 
 func getMarketingName(brand, model string) string {
-	// 1. Try exact match first
+	// Clean input
+	model = strings.TrimSpace(model)
+	brand = strings.ToLower(strings.TrimSpace(brand))
+	
+	// 1. Try exact match first (fast path)
 	if name, ok := deviceNames[model]; ok {
 		return name
 	}
 	
-	// 2. Try prefix matching (e.g., "ASUS_AI2401_D" matches "ASUS_AI2401")
+	// 2. Try prefix matching: iterate through known codes
+	//    e.g., "ASUS_AI2401_D" starts with "ASUS_AI2401" → match!
 	for code, name := range deviceNames {
 		if strings.HasPrefix(model, code) {
 			return name
 		}
 	}
 	
-	// 3. Try without "SM-" prefix for Samsung
+	// 3. Samsung special case: strip "SM-" prefix and retry
 	if brand == "samsung" && strings.HasPrefix(model, "SM-") {
 		baseModel := strings.TrimPrefix(model, "SM-")
+		
+		// Exact match on base
 		if name, ok := deviceNames[baseModel]; ok {
 			return name
 		}
-		// Also try prefix matching on base model
+		// Prefix match on base
 		for code, name := range deviceNames {
 			if strings.HasPrefix(baseModel, code) {
 				return name
@@ -94,7 +102,7 @@ func getMarketingName(brand, model string) string {
 		}
 	}
 	
-	// 4. Return original model if no match found
+	// 4. Fallback: return original model code
 	return model
 }
 
@@ -126,47 +134,36 @@ func getDeviceInfo() (interface{}, string) {
 	}
 
 	deviceID := fields[0]
+	
+	// Fetch device properties
 	model, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.model")
 	brand, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.brand")
+	device, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.device")
+	marketName, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.marketname")
 	version, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.release")
 	rootOut, _, _ := runAdb("-s", deviceID, "shell", "su", "-c", "id")
-	typeVal, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.characteristics")
-	osVersion, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.release")
-	binary, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.incremental")
-	ram, _, _ := runAdb("-s", deviceID, "shell", "cat", "/proc/meminfo")
-	cpu, _, _ := runAdb("-s", deviceID, "shell", "cat", "/proc/cpuinfo")
-	kernel, _, _ := runAdb("-s", deviceID, "shell", "uname", "-a")
-
-	// Parse RAM (MemTotal)
-	ramTotal := ""
-	ramLines := strings.Split(ram, "\n")
-	for _, line := range ramLines {
-		if strings.HasPrefix(line, "MemTotal:") {
-			ramTotal = strings.TrimSpace(line)
-			break
-		}
-	}
-
-	// Parse CPU (model name)
-	cpuModel := ""
-	cpuLines := strings.Split(cpu, "\n")
-	for _, line := range cpuLines {
-		if strings.HasPrefix(line, "Hardware") || strings.HasPrefix(line, "model name") {
-			cpuModel = strings.TrimSpace(line)
-			break
-		}
+	
+	// Clean up strings
+	brand = strings.TrimSpace(brand)
+	model = strings.TrimSpace(model)
+	device = strings.TrimSpace(device)
+	marketName = strings.TrimSpace(marketName)
+	version = strings.TrimSpace(version)
+	
+	// 🔑 KEY FIX: Get the marketing name using our lookup function
+	displayName := getMarketingName(strings.ToLower(brand), model)
+	
+	// If marketname property exists (some phones have it), prefer that
+	if marketName != "" {
+		displayName = marketName
 	}
 
 	return map[string]interface{}{
-		"brand":          strings.TrimSpace(brand),
-		"model":          strings.TrimSpace(model),
-		"phoneType":      strings.TrimSpace(typeVal),
-		"androidVersion": strings.TrimSpace(version),
-		"osVersion":      strings.TrimSpace(osVersion),
-		"binary":         strings.TrimSpace(binary),
-		"ram":            ramTotal,
-		"cpu":            cpuModel,
-		"kernelVersion":  strings.TrimSpace(kernel),
+		"brand":          brand,
+		"model":          model,
+		"displayName":    displayName,
+		"device":         device,
+		"androidVersion": version,
 		"rooted":         strings.Contains(rootOut, "uid=0"),
 	}, ""
 }
@@ -207,4 +204,81 @@ func checkFirmware(payload interface{}) (interface{}, string) {
 
 func rootDevice() (interface{}, string) {
 	return map[string]interface{}{"message": "Root process initiated. Monitor device screen."}, ""
+}
+
+func checkFirmware(payload interface{}) (interface{}, string) {
+	data, ok := payload.(map[string]interface{})
+	if !ok {
+		return nil, "Invalid payload format"
+	}
+
+	model, _ := data["model"].(string)
+	codename, _ := data["device"].(string)
+
+	// Check multiple possible firmware locations
+	searchDirs := []string{}
+	
+	// 1. Next to executable (dev mode)
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		searchDirs = append(searchDirs, filepath.Join(exeDir, "firmware"))
+		// Also check parent bin/ folder
+		if strings.HasSuffix(exeDir, "bin") {
+			searchDirs = append(searchDirs, filepath.Join(filepath.Dir(exeDir), "firmware"))
+		}
+	}
+	
+	// 2. AppData location (where installer saves)
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		searchDirs = append(searchDirs, filepath.Join(appData, "AutoRoot", "firmware"))
+	}
+	
+	// 3. LocalAppData fallback
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		searchDirs = append(searchDirs, filepath.Join(localAppData, "AutoRoot", "firmware"))
+	}
+
+	extensions := []string{".zip", ".tar.md5", ".img", ".tgz", ".7z", ".bin", ".payload.bin"}
+	searchTerms := []string{model, strings.ToLower(model), codename, strings.ToLower(codename)}
+
+	var foundFiles []string
+	for _, dir := range searchDirs {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			continue
+		}
+		for _, term := range searchTerms {
+			if term == "" { continue }
+			for _, ext := range extensions {
+				pattern := filepath.Join(dir, term+"*"+ext)
+				matches, _ := filepath.Glob(pattern)
+				for _, m := range matches {
+					if !contains(foundFiles, filepath.Base(m)) {
+						foundFiles = append(foundFiles, filepath.Base(m))
+					}
+				}
+			}
+		}
+	}
+
+	if len(foundFiles) > 0 {
+		return map[string]interface{}{
+			"available": true,
+			"files":     foundFiles,
+			"message":   "Firmware detected and ready for rooting.",
+		}, ""
+	}
+
+	return map[string]interface{}{
+		"available": false,
+		"message":   "Firmware unavailable. Download during setup or from within the app.",
+	}, ""
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }

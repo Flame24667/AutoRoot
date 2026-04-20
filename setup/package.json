@@ -1,0 +1,12 @@
+{
+  "name": "autoroot-setup",
+  "version": "1.0.0",
+  "description": "AutoRoot Firmware Setup Wizard",
+  "main": "setup.js",
+  "bin": {
+    "autoroot-setup": "./setup.js"
+  },
+  "scripts": {
+    "start": "node setup.js"
+  }
+}

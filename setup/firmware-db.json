@@ -1,0 +1,17 @@
+{
+    "devices": [
+        {
+        "brand": "Samsung",
+        "model": "SM-S911B",
+        "displayName": "Galaxy S23",
+        "firmware": [
+            {
+            "androidVersion": "14",
+            "url": "https://drive.usercontent.google.com/download?id=1h8bF1V8srrn47S-bFh07xPw1Flx9Wm2q&export=download&authuser=0",
+            "filename": "Root Samsung S23 Android 14.zip",
+            "size": "0.16 GB"
+            }
+        ]
+        }
+    ]
+}

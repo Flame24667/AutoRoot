@@ -1,6 +1,7 @@
 package main
 
 // deviceNames maps factory model codes to consumer-friendly marketing names
+// Keys should be the BASE model code (without variant suffixes like _D, _U, etc.)
 var deviceNames = map[string]string{
 	// Samsung Galaxy S Series
 	"SM-G991B":   "Galaxy S21",
@@ -69,21 +70,21 @@ var deviceNames = map[string]string{
 	"XT2117-4":   "Moto G Stylus (2021)",
 	"XT2163-5":   "Edge 2022",
 
-	// ASUS ROG Phone Series
-	"ASUS_I001D": "ROG Phone 2",
-	"ASUS_I003D": "ROG Phone 3",
-	"ASUS_I005D": "ROG Phone 5",
-	"ASUS_AI2201": "ROG Phone 6",
-	"ASUS_AI2302": "ROG Phone 7",
-	"ASUS_AI2401": "ROG Phone 8",
-	"ZS600KL":    "ROG Phone",
+	// ASUS ROG Phone Series ✅
+	"ASUS_I001D":   "ROG Phone 2",
+	"ASUS_I003D":   "ROG Phone 3",
+	"ASUS_I005D":   "ROG Phone 5",
+	"ASUS_AI2201":  "ROG Phone 6",
+	"ASUS_AI2302":  "ROG Phone 7",
+	"ASUS_AI2401":  "ROG Phone 8",
+	"ZS600KL":      "ROG Phone",
 	
-	// ASUS Zenfone Series
-	"ASUS_AI2203": "Zenfone 9",
-	"ASUS_AI2301": "Zenfone 10",
-	"ZS630KL":    "Zenfone 7",
-	"ZS670KS":    "Zenfone 7 Pro",
-	"ZS681KS":    "Zenfone 8",
-	"ZS590KS":    "Zenfone 8 Flip",
-	"ASUS_X00TD": "Zenfone Max Pro M1",
+	// ASUS Zenfone Series ✅
+	"ASUS_AI2203":  "Zenfone 9",
+	"ASUS_AI2301":  "Zenfone 10",
+	"ZS630KL":      "Zenfone 7",
+	"ZS670KS":      "Zenfone 7 Pro",
+	"ZS681KS":      "Zenfone 8",
+	"ZS590KS":      "Zenfone 8 Flip",
+	"ASUS_X00TD":   "Zenfone Max Pro M1",
 }
