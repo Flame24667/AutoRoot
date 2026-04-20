@@ -168,40 +168,6 @@ func getDeviceInfo() (interface{}, string) {
 	}, ""
 }
 
-func checkFirmware(payload interface{}) (interface{}, string) {
-	info, ok := payload.(map[string]interface{})
-	if !ok {
-		return nil, "Invalid device info payload"
-	}
-
-	brand, _ := info["brand"].(string)
-	model, _ := info["model"].(string)
-	androidVer, _ := info["androidVersion"].(string)
-
-	// 🔹 MOCK DATABASE: Expand this later with real firmware URLs/hashes
-	// You can later change this to check exact model + android version combos
-	supportedBrands := map[string]bool{
-		"asus":    true,
-		"samsung": true,
-		"google":  true,
-		"xiaomi":  true,
-		"oneplus": true,
-	}
-
-	brandLower := strings.ToLower(brand)
-	if supportedBrands[brandLower] {
-		return map[string]interface{}{
-			"available": true,
-			"message":   fmt.Sprintf("Firmware & root package available for %s %s (Android %s)", brand, model, androidVer),
-		}, ""
-	}
-
-	return map[string]interface{}{
-		"available": false,
-		"message":   fmt.Sprintf("No supported firmware found for %s %s yet.", brand, model),
-	}, ""
-}
-
 func rootDevice() (interface{}, string) {
 	return map[string]interface{}{"message": "Root process initiated. Monitor device screen."}, ""
 }
