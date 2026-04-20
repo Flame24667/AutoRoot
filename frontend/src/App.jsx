@@ -11,11 +11,19 @@ function App() {
     setChecking(true);
     setError('');
     setMessage('Checking ADB connection...');
+    setFirmwareStatus('idle');
     try {
       const info = await window.goAPI.call('getDeviceInfo', {});
       setDevice(info);
       setStep('ready');
-      setMessage(`✅ Connected: ${info.brand} ${info.model} (Android ${info.androidVersion})`);
+      setMessage(`✅ Connected: ${info.brand} ${info.displayName || info.model}`);
+      
+      setFirmwareStatus('checking');
+      const fwRes = await window.goAPI.call('checkFirmware', {
+        model: info.model,
+        device: info.device
+      });
+      setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
     } catch (err) {
       setError(err.message);
       setMessage('');
@@ -29,20 +37,29 @@ function App() {
     setError('');
     setMessage('Waiting for device... Enable USB Debugging & tap Allow on your phone.');
     setChecking(true);
+    setFirmwareStatus('idle');
     
     const interval = setInterval(async () => {
       try {
         const info = await window.goAPI.call('getDeviceInfo', {});
         setDevice(info);
         setStep('ready');
-        setMessage(`✅ Connected: ${info.brand} ${info.model}`);
+        setMessage(`✅ Connected: ${info.brand} ${info.displayName || info.model}`);
+        
+        // 🔍 Check firmware availability immediately after detection
+        setFirmwareStatus('checking');
+        const fwRes = await window.goAPI.call('checkFirmware', {
+          model: info.model,
+          device: info.device
+        });
+        setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
+        
         clearInterval(interval);
       } catch (e) {
         // Still waiting, ignore transient errors
       }
     }, 2000);
 
-    // Timeout after 60s
     setTimeout(() => {
       clearInterval(interval);
       if (step === 'waiting') {
@@ -65,6 +82,8 @@ function App() {
       setError(err.message);
     }
   };
+
+  const [firmwareStatus, setFirmwareStatus] = useState('idle'); // idle | checking | available | unavailable
 
   return (
     <div style={styles.container}>
@@ -95,6 +114,14 @@ function App() {
             <button onClick={checkConnection} style={styles.secondaryBtn} disabled={checking}>
               {checking ? 'Checking...' : '🔍 Manual Check Connection'}
             </button>
+            <button onClick={() => { 
+              setStep('guide'); 
+              setDevice(null); 
+              setError(''); 
+              setFirmwareStatus('idle'); 
+            }} style={styles.secondaryBtn}>
+              Start Over
+            </button>
           </>
         )}
 
@@ -124,11 +151,25 @@ function App() {
             </div>
             <button 
               onClick={handleRoot} 
-              disabled={device.rooted}
-              style={{...styles.primaryBtn, opacity: device.rooted ? 0.5 : 1}}
+              disabled={device.rooted || firmwareStatus !== 'available'}
+              style={{
+                ...styles.primaryBtn, 
+                opacity: (device.rooted || firmwareStatus !== 'available') ? 0.6 : 1,
+                background: firmwareStatus === 'unavailable' ? '#475569' : 'linear-gradient(135deg, #3b82f6, #6366f1)',
+                cursor: (device.rooted || firmwareStatus !== 'available') ? 'not-allowed' : 'pointer'
+              }}
             >
-              {device.rooted ? 'Already Rooted' : '🚀 Start Root Process'}
+              {device.rooted ? '✅ Already Rooted' : 
+              firmwareStatus === 'checking' ? '⏳ Checking Firmware...' : 
+              firmwareStatus === 'unavailable' ? '📦 Firmware Unavailable' : 
+              '🚀 Start Root Process'}
             </button>
+
+            {firmwareStatus === 'unavailable' && (
+              <p style={{ color: '#f87171', fontSize: '0.85rem', textAlign: 'center', marginTop: '0.5rem' }}>
+                Firmware Unavailable. Contact the developer to add it to the application, or add it yourself by downloading the firmware and placing it in the firmware folder in the app directory.
+              </p>
+            )}
           </>
         )}
 

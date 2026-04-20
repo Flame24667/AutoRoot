@@ -1,0 +1,19 @@
+{
+    "devices": [
+        {
+        "brand": "Samsung",
+        "model": "SM-S921B",
+        "displayName": "Galaxy S24",
+        "firmware": [
+            {
+            "region": "XSG (Dubai)",
+            "version": "S921BXXU1AWL1",
+            "androidVersion": "14",
+            "url": "https://example.com/firmware/SM-S921B_XSG.tar.md5",
+            "filename": "SM-S921B_XSG_S921BXXU1AWL1.tar.md5",
+            "size": "6.8 GB"
+            }
+        ]
+        }
+    ]
+}

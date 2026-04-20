@@ -1,20 +1,37 @@
 {
     "appId": "com.autoroot.desktop",
     "productName": "AutoRoot",
-    "files": ["electron/**/*", "frontend/dist/**/*"],
-    "extraResources": ["bin/*"],
-    "directories": { "output": "release" },
+    "files": [
+        "electron/**/*",
+        "frontend/dist/**/*"
+    ],
+    "extraResources": [
+        "bin/*",
+        {
+        "from": "scripts/firmware-installer.js",
+        "to": "firmware-installer.js"
+        }
+    ],
+    "directories": {
+        "output": "release"
+    },
     "win": {
-        "target": [{ "target": "nsis", "arch": ["x64"] }],
+        "target": [
+        {
+            "target": "nsis",
+            "arch": ["x64"]
+        }
+        ],
         "forceCodeSigning": false,
-        "verifyUpdateCodeSignature": false,
-        "signtoolOptions": null
+        "verifyUpdateCodeSignature": false
     },
     "nsis": {
         "oneClick": false,
         "allowToChangeInstallationDirectory": true,
         "createDesktopShortcut": true,
-        "shortcutName": "AutoRoot"
+        "shortcutName": "AutoRoot",
+        "runAfterFinish": true,
+        "include": "installer.nsh"
     },
     "publish": null
 }
