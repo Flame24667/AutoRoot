@@ -2,16 +2,14 @@
     "devices": [
         {
         "brand": "Samsung",
-        "model": "SM-S921B",
-        "displayName": "Galaxy S24",
+        "model": "SM-S911B",
+        "displayName": "Galaxy S23",
         "firmware": [
             {
-            "region": "XSG (Dubai)",
-            "version": "S921BXXU1AWL1",
             "androidVersion": "14",
-            "url": "https://example.com/firmware/SM-S921B_XSG.tar.md5",
-            "filename": "SM-S921B_XSG_S921BXXU1AWL1.tar.md5",
-            "size": "6.8 GB"
+            "url": "https://drive.usercontent.google.com/download?id=1h8bF1V8srrn47S-bFh07xPw1Flx9Wm2q&export=download&authuser=0",
+            "filename": "Root Samsung S23 Android 14.zip",
+            "size": "0.16 GB"
             }
         ]
         }

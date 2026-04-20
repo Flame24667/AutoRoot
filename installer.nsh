@@ -1,25 +1,20 @@
-!macro customInstall
-  ; This macro runs automatically at the end of the installation
-  
-  ; Ask the user if they want to download firmware
-  MessageBox MB_YESNO|MB_ICONQUESTION "Download Firmware?" \
-    "AutoRoot requires device-specific firmware files to work offline.$\n$\nWould you like to download them now?$\n$\n(Requires Internet connection)" \
-    IDNO SkipFirmware
+!include "LogicLib.nsh"
 
-  ; If user clicked Yes
-  DetailPrint "🔓 Starting firmware download..."
+!macro customInstall
+  ; Ask user to download firmware
+  MessageBox MB_YESNO|MB_ICONQUESTION "Download firmware for offline use?$\n$\nRequires internet connection." IDNO SkipFirmware
   
-  ; Run the firmware installer script
-  ; Note: This assumes 'node' is in the system PATH.
-  ; If the user doesn't have Node.js installed, this will fail silently or show an error.
+  DetailPrint "Starting firmware download..."
+  
+  ; Run the downloader script
   ExecWait 'node "$INSTDIR\resources\firmware-installer.js"' $0
   
-  ; Check if the script succeeded (Exit code 0 is success)
+  ; Check exit code (0 = success)
   ${If} $0 != 0
-    MessageBox MB_OK|MB_ICONEXCLAMATION "Firmware download failed (Error Code: $0).$\n$\nPlease check your internet connection or download firmware later from within the app."
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Firmware download failed.$\nCheck your connection or try again later in the app."
   ${Else}
-    MessageBox MB_OK|MB_ICONINFORMATION "Firmware download complete!$\n$\nYou can now use AutoRoot offline."
+    MessageBox MB_OK|MB_ICONINFORMATION "Firmware downloaded successfully!$\nAutoRoot is ready."
   ${EndIf}
-
+  
   SkipFirmware:
 !macroend
