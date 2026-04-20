@@ -6,6 +6,8 @@ function App() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
+  const [firmwareAvailable, setFirmwareAvailable] = useState(false);
+  const [firmwareMessage, setFirmwareMessage] = useState('');
 
   const checkConnection = async () => {
     setChecking(true);
@@ -14,6 +16,7 @@ function App() {
     try {
       const info = await window.goAPI.call('getDeviceInfo', {});
       setDevice(info);
+      await checkFirmwareStatus(info); // 🔹 NEW
       setStep('ready');
       setMessage(`✅ Connected: ${info.brand} ${info.model} (Android ${info.androidVersion})`);
     } catch (err) {
@@ -34,6 +37,7 @@ function App() {
       try {
         const info = await window.goAPI.call('getDeviceInfo', {});
         setDevice(info);
+        await checkFirmwareStatus(info); // 🔹 NEW
         setStep('ready');
         setMessage(`✅ Connected: ${info.brand} ${info.model}`);
         clearInterval(interval);
@@ -63,6 +67,17 @@ function App() {
     } catch (err) {
       setStep('error');
       setError(err.message);
+    }
+  };
+
+  const checkFirmwareStatus = async (deviceInfo) => {
+    try {
+      const res = await window.goAPI.call('checkFirmware', deviceInfo);
+      setFirmwareAvailable(res.available);
+      setFirmwareMessage(res.message);
+    } catch (err) {
+      setFirmwareAvailable(false);
+      setFirmwareMessage('Failed to verify firmware support');
     }
   };
 
@@ -124,10 +139,16 @@ function App() {
             </div>
             <button 
               onClick={handleRoot} 
-              disabled={device.rooted}
-              style={{...styles.primaryBtn, opacity: device.rooted ? 0.5 : 1}}
+              disabled={device.rooted || !firmwareAvailable}
+              style={{
+                ...styles.primaryBtn, 
+                opacity: (device.rooted || !firmwareAvailable) ? 0.6 : 1,
+                background: !firmwareAvailable ? '#475569' : undefined,
+                cursor: (device.rooted || !firmwareAvailable) ? 'not-allowed' : 'pointer'
+              }}
             >
-              {device.rooted ? 'Already Rooted' : '🚀 Start Root Process'}
+              {!firmwareAvailable ? '📦 Firmware Unavailable' : 
+              device.rooted ? 'Already Rooted' : '🚀 Start Root Process'}
             </button>
           </>
         )}
@@ -140,7 +161,13 @@ function App() {
             </h2>
             <p style={styles.statusText}>{message || error}</p>
             {step !== 'rooting' && (
-              <button onClick={() => { setStep('guide'); setDevice(null); setError(''); }} style={styles.secondaryBtn}>
+              <button onClick={() => { 
+                setStep('guide'); 
+                setDevice(null); 
+                setError(''); 
+                setFirmwareAvailable(false); // 🔹 RESET
+                setFirmwareMessage(''); 
+              }} style={styles.secondaryBtn}>
                 Start Over
               </button>
             )}
