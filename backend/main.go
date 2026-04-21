@@ -43,6 +43,60 @@ func main() {
 			resp.Result, resp.Error = rootDevice()
 		case "checkFirmware":
 			resp.Result, resp.Error = checkFirmware(req.Payload)
+		case "rebootToDownloadMode":
+			deviceID := req.Payload.(map[string]interface{})["deviceID"].(string)
+			resp.Result, resp.Error = rebootToDownloadMode(deviceID)
+			
+		case "findFirmwareFiles":
+			model := req.Payload.(map[string]interface{})["model"].(string)
+			resp.Result, resp.Error = findFirmwareFiles(model)
+			
+		case "flashWithOdin":
+			payload := req.Payload.(map[string]interface{})
+			deviceID := payload["deviceID"].(string)
+			firmwareFiles := payload["firmwareFiles"].(map[string]interface{})
+			
+			// Convert to map[string]string
+			fwMap := make(map[string]string)
+			for k, v := range firmwareFiles {
+				if str, ok := v.(string); ok {
+					fwMap[k] = str
+				}
+			}
+			
+			resp.Result, resp.Error = flashWithOdin(deviceID, fwMap)
+			
+		case "verifyRootAfterFlash":
+			rooted, msg := verifyRootAfterFlash()
+			resp.Result = map[string]interface{}{
+				"rooted": rooted,
+				"message": msg,
+			}
+		case "rebootToBootloader":
+			deviceID := req.Payload.(map[string]interface{})["deviceID"].(string)
+			resp.Result, resp.Error = rebootToBootloader(deviceID)
+			
+		case "waitForFastboot":
+			resp.Result, resp.Error = waitForFastboot()
+			
+		case "findOnePlusFirmware":
+			model := req.Payload.(map[string]interface{})["model"].(string)
+			resp.Result, resp.Error = findOnePlusFirmware(model)
+			
+		case "flashWithFastboot":
+			payload := req.Payload.(map[string]interface{})
+			deviceID := payload["deviceID"].(string)
+			bootImage := payload["bootImage"].(string)
+			resp.Result, resp.Error = flashWithFastboot(deviceID, bootImage)
+		case "downloadFirmware":
+			resp.Result, resp.Error = downloadFirmware(req.Payload)
+		case "listAvailableFirmware":
+			resp.Result, resp.Error = listAvailableFirmware(req.Payload)
+		case "odinFlash":
+			payload := req.Payload.(map[string]interface{})
+			deviceID := payload["deviceID"].(string)
+			tarFile := payload["tarFile"].(string)
+			resp.Result, resp.Error = FlashWithOdin(deviceID, tarFile)
 		default:
 			resp.Error = "unknown action"
 		}

@@ -7,21 +7,19 @@
     ],
     "extraResources": [
         "bin/*",
+        "odin/**/*",
+        "setup/firmware-db.json",
+        "scripts/firmware-installer.ps1",
         {
-        "from": "scripts/firmware-installer.js",
-        "to": "firmware-installer.js"
+        "from": "scripts/firmware-installer.ps1",
+        "to": "firmware-installer.ps1"
         }
     ],
     "directories": {
         "output": "release"
     },
     "win": {
-        "target": [
-        {
-            "target": "nsis",
-            "arch": ["x64"]
-        }
-        ],
+        "target": [{ "target": "nsis", "arch": ["x64"] }],
         "forceCodeSigning": false,
         "verifyUpdateCodeSignature": false
     },
