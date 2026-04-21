@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 function App() {
   const [step, setStep] = useState('guide');
@@ -8,6 +8,83 @@ function App() {
   const [checking, setChecking] = useState(false);
   const [firmwareAvailable, setFirmwareAvailable] = useState(false);
   const [firmwareMessage, setFirmwareMessage] = useState('');
+  const [firmwareStatus, setFirmwareStatus] = useState('idle');
+  const connectionCheckInterval = useRef(null);
+
+  const checkDeviceConnection = async () => {
+    try {
+      const info = await window.goAPI.call('getDeviceInfo', {});
+      return true;
+    } catch (err) {
+      resetToGuide();
+      return false;
+    }
+  };
+
+  const resetToGuide = () => {
+    if (connectionCheckInterval.current) {
+      clearInterval(connectionCheckInterval.current);
+      connectionCheckInterval.current = null;
+    }
+    setStep('guide');
+    setDevice(null);
+    setError('');
+    setMessage('');
+    setFirmwareStatus('idle');
+    setChecking(false);
+  };
+
+  useEffect(() => {
+    const checkInitialConnection = async () => {
+      try {
+        const info = await window.goAPI.call('getDeviceInfo', {});
+        // Device already connected!
+        setDevice(info);
+        setStep('ready');
+        setMessage(`✅ Connected: ${info.brand} ${info.displayName || info.model}`);
+        
+        // Check firmware
+        setFirmwareStatus('checking');
+        const fwRes = await window.goAPI.call('checkFirmware', {
+          model: info.model,
+          device: info.device
+        });
+        setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
+        
+        // Start polling for disconnection
+        connectionCheckInterval.current = setInterval(checkDeviceConnection, 3000);
+      } catch (err) {
+        // No device connected, stay on guide screen
+        console.log('No device connected on startup');
+      }
+    };
+
+    checkInitialConnection();
+    
+    // Cleanup
+    return () => {
+      if (connectionCheckInterval.current) {
+        clearInterval(connectionCheckInterval.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (step === 'ready' && device) {
+      if (connectionCheckInterval.current) {
+        clearInterval(connectionCheckInterval.current);
+      }
+      
+      connectionCheckInterval.current = setInterval(checkDeviceConnection, 3000);
+    }
+    
+    return () => {
+      if (connectionCheckInterval.current) {
+        clearInterval(connectionCheckInterval.current);
+        connectionCheckInterval.current = null;
+      }
+    };
+  }, [step, device]);
 
   const checkConnection = async () => {
     setChecking(true);
@@ -185,17 +262,6 @@ function App() {
                 step === 'success' ? '✅ Root Successful!' : '❌ Root Failed'}
             </h2>
             <p style={styles.statusText}>{message || error}</p>
-            {step !== 'rooting' && (
-              <button onClick={() => { 
-                setStep('guide'); 
-                setDevice(null); 
-                setError(''); 
-                setFirmwareAvailable(false); // 🔹 RESET
-                setFirmwareMessage(''); 
-              }} style={styles.secondaryBtn}>
-                Start Over
-              </button>
-            )}
           </div>
         )}
       </div>
