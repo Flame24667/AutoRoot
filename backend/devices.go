@@ -30,6 +30,7 @@ var deviceNames = map[string]string{
 	"SM-A546B":   "Galaxy A54 5G",
 	"SM-A715F":   "Galaxy A71",
 	"SM-A725F":   "Galaxy A72",
+	"SM-A736B":   "Galaxy A73 5G",
 	
 	// Google Pixel
 	"Pixel":      "Pixel",
