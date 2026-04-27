@@ -213,10 +213,11 @@ func getDeviceInfo() (interface{}, string) {
 	}
 
 	return map[string]interface{}{
-		"brand":          brand,
-		"model":          model,
+		"brand":          strings.TrimSpace(brand),
+		"model":          strings.TrimSpace(model),
 		"displayName":    displayName,
 		"device":         device,
+		"serial":         deviceID,
 		"androidVersion": version,
 		"rooted":         strings.Contains(rootOut, "uid=0"),
 	}, ""

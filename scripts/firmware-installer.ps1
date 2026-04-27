@@ -10,23 +10,23 @@ function Log($msg) {
     Write-Host $msg
 }
 
-function Download-GoogleDriveFile {
+function Download-GDriveLargeFile {
     param($Url, $Dest)
     $wc = New-Object System.Net.WebClient
     $wc.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-    $wc.DownloadFile($Url, $Dest)
-    
-    # Handle Google Drive Warning Page
-    $Content = Get-Content $Dest -Raw -Encoding UTF8
-    if ($Content -match 'confirm=([^&]+)&uuid=([^&"]+)') {
-        Log "  🔄 Google Drive warning detected. Bypassing..."
-        $Confirm = $matches[1]
-        $Uuid = $matches[2]
-        $FileId = if ($Url -match 'id=([-\w]+)') { $matches[1] } else { '' }
-        $ConfirmUrl = "https://drive.google.com/uc?export=download&confirm=$Confirm&uuid=$Uuid&id=$FileId"
-        $wc.DownloadFile($ConfirmUrl, $Dest)
+    try {
+        $page = $wc.DownloadString($Url)
+        $match = [regex]::Match($page, 'id="download-form".*?action="([^"]+)"', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+        if ($match.Success) {
+            $confirmUrl = $match.Groups[1].Value -replace '&amp;', '&'
+            Log "  🔄 Large file detected. Confirming download..."
+            $wc.DownloadFile($confirmUrl, $Dest)
+        } else {
+            $wc.DownloadFile($Url, $Dest)
+        }
+    } finally {
+        $wc.Dispose()
     }
-    $wc.Dispose()
 }
 
 Log "=== FIRMWARE INSTALL STARTED ==="
@@ -52,41 +52,52 @@ foreach ($dev in $Db.devices) {
 
         Log "DOWNLOAD: $($fw.filename)"
         try {
-            Download-GoogleDriveFile -Url $Url -Dest $ZipPath
-            
-            # Validate file size & type
+            Download-GDriveLargeFile -Url $Url -Dest $ZipPath
+
+            if (-Not (Test-Path $ZipPath)) { throw "File not created" }
             $Size = (Get-Item $ZipPath).Length
             if ($Size -lt 1MB) {
-                # ✅ FIXED: Removed -TotalCount which caused the crash
                 $Content = Get-Content $ZipPath -Raw -Encoding UTF8
                 if ($Content -match "<!DOCTYPE|<html") {
-                    Log "❌ Downloaded HTML page instead of file (Link likely expired or requires manual confirmation)."
+                    Log "❌ Downloaded HTML page. Link may require manual browser confirmation."
                     Remove-Item $ZipPath -Force -ErrorAction SilentlyContinue
                     $Fail++; continue
                 }
             }
-            
+
             Log "✅ Downloaded ($([math]::Round($Size/1MB, 2)) MB). Extracting..."
 
             $TempDir = Join-Path $env:TEMP "AutoRoot_$(Get-Random)"
             New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
             Expand-Archive -Path $ZipPath -DestinationPath $TempDir -Force -ErrorAction Stop
-            
+
             $Files = Get-ChildItem -Path $TempDir -Recurse -File
             Log "  Found $($Files.Count) files"
-            
+
+            # 🔑 STANDARDIZED RENAMING: [model]_[androidVersion]_firmware[ext]
+            $baseName = "$($dev.model)_$($fw.androidVersion)_firmware"
+            $counter = 1
+
             foreach ($file in $Files) {
-                $Target = Join-Path $FwDir $file.Name
-                if (Test-Path $Target) { $Target = Join-Path $FwDir "$($file.BaseName)_$(Get-Random)$($file.Extension)" }
+                $newName = "$baseName$($file.Extension)"
+                $Target = Join-Path $FwDir $newName
+
+                # Handle duplicates by appending _1, _2, etc.
+                while (Test-Path $Target) {
+                    $newName = "$baseName`_$counter$($file.Extension)"
+                    $Target = Join-Path $FwDir $newName
+                    $counter++
+                }
+
                 Copy-Item -Path $file.FullName -Destination $Target -Force -ErrorAction SilentlyContinue
-                Log "  + Saved: $($file.Name)"
+                Log "  + Saved: $newName"
             }
-            
+
             Remove-Item -Path $ZipPath -Force -ErrorAction SilentlyContinue
             Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
             Log "✅ Zip cleaned up."
             $Ok++
-            
+
         } catch {
             Log "❌ Error: $($_.Exception.Message)"
             $Fail++
