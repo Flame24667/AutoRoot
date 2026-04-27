@@ -103,6 +103,32 @@
             "size": "0.018 GB"
             }
         ]
+        },
+        {
+        "brand": "Samsung",
+        "model": "SM-J600G/SM-J600F",
+        "displayName": "J6",
+        "firmware": [
+            {
+            "androidVersion": "9",
+            "url": "https://drive.usercontent.google.com/download?id=1zkG2MqZm951O1qJOsqUOja501Gy_Bp7k&export=download&authuser=0",
+            "filename": "Root Samsung J6 Android 9.zip",
+            "size": "0.011 GB"
+            }
+        ]
+        },
+        {
+        "brand": "Samsung",
+        "model": "SM-J400F/M/G U4",
+        "displayName": "J4",
+        "firmware": [
+            {
+            "androidVersion": "9",
+            "url": "https://drive.usercontent.google.com/download?id=1xInTKHTI7-0BiS99bmSRT0-v1kBfHTbC&export=download&authuser=0",
+            "filename": "Root Samsung J4 Android 9.zip",
+            "size": "0.011 GB"
+            }
+        ]
         }
         
     ]
