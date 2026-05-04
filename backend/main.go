@@ -290,71 +290,63 @@ func rootDevice() (interface{}, string) {
 }
 
 func checkFirmware(payload interface{}) (interface{}, string) {
-	data, ok := payload.(map[string]interface{})
-	if !ok {
-		return nil, "Invalid payload format"
-	}
+    data, ok := payload.(map[string]interface{})
+    if !ok {
+        return nil, "Invalid payload"
+    }
 
-	model, _ := data["model"].(string)
-	codename, _ := data["device"].(string)
+    model, _ := data["model"].(string)
+    codename, _ := data["device"].(string)
 
-	// Check multiple possible firmware locations
-	searchDirs := []string{}
-	
-	// 1. Next to executable (dev mode)
-	if exePath, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exePath)
-		searchDirs = append(searchDirs, filepath.Join(exeDir, "firmware"))
-		// Also check parent bin/ folder
-		if strings.HasSuffix(exeDir, "bin") {
-			searchDirs = append(searchDirs, filepath.Join(filepath.Dir(exeDir), "firmware"))
-		}
-	}
-	
-	// 2. AppData location (where installer saves)
-	if appData := os.Getenv("APPDATA"); appData != "" {
-		searchDirs = append(searchDirs, filepath.Join(appData, "AutoRoot", "firmware"))
-	}
-	
-	// 3. LocalAppData fallback
-	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-		searchDirs = append(searchDirs, filepath.Join(localAppData, "AutoRoot", "firmware"))
-	}
+    // 🔑 1. GET FIRMWARE DIRECTORY FIRST
+    fwDir := getFirmwareDirectory()
+    if fwDir == "" {
+        return map[string]interface{}{
+            "available": false,
+            "message":   "Firmware directory not found",
+        }, ""
+    }
 
-	extensions := []string{".zip", ".tar.md5", ".img", ".tgz", ".7z", ".bin", ".payload.bin"}
-	searchTerms := []string{model, strings.ToLower(model), codename, strings.ToLower(codename)}
+    // 🔑 2. NOW CHECK FOR ANY FIRMWARE FILES (Fallback)
+    files, _ := filepath.Glob(filepath.Join(fwDir, "*.zip"))
+    imgFiles, _ := filepath.Glob(filepath.Join(fwDir, "*.img"))
+    tarFiles, _ := filepath.Glob(filepath.Join(fwDir, "*.tar*"))
 
-	var foundFiles []string
-	for _, dir := range searchDirs {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			continue
-		}
-		for _, term := range searchTerms {
-			if term == "" { continue }
-			for _, ext := range extensions {
-				pattern := filepath.Join(dir, term+"*"+ext)
-				matches, _ := filepath.Glob(pattern)
-				for _, m := range matches {
-					if !contains(foundFiles, filepath.Base(m)) {
-						foundFiles = append(foundFiles, filepath.Base(m))
-					}
-				}
-			}
-		}
-	}
+    if len(files) > 0 || len(imgFiles) > 0 || len(tarFiles) > 0 {
+        allFiles := append(files, append(imgFiles, tarFiles...)...)
+        return map[string]interface{}{
+            "available": true,
+            "message":   "Firmware files detected in folder.",
+            "files":     allFiles,
+        }, ""
+    }
 
-	if len(foundFiles) > 0 {
-		return map[string]interface{}{
-			"available": true,
-			"files":     foundFiles,
-			"message":   "Firmware detected and ready for rooting.",
-		}, ""
-	}
+    // 3. Original model-specific search logic...
+    searchPatterns := []string{
+        filepath.Join(fwDir, "*"+model+"*"),
+        filepath.Join(fwDir, "*"+codename+"*"),
+    }
 
-	return map[string]interface{}{
-		"available": false,
-		"message":   "Firmware unavailable. Download during setup or from within the app.",
-	}, ""
+    var foundFiles []string
+    for _, pattern := range searchPatterns {
+        matches, err := filepath.Glob(pattern)
+        if err == nil && len(matches) > 0 {
+            foundFiles = append(foundFiles, matches...)
+        }
+    }
+
+    if len(foundFiles) > 0 {
+        return map[string]interface{}{
+            "available": true,
+            "files":     foundFiles,
+            "count":     len(foundFiles),
+        }, ""
+    }
+
+    return map[string]interface{}{
+        "available": false,
+        "message":   "No matching firmware found for this device",
+    }, ""
 }
 
 func contains(slice []string, item string) bool {

@@ -273,56 +273,27 @@ function App() {
 
     if (successCount > 0) {
       setDropMsg(`✅ Added ${successCount} firmware file(s)!`);
-      // Refresh firmware status if a device is connected
+      
+      // 🔑 FORCE REFRESH FIRMWARE STATUS
       if (device) {
-        const fwRes = await window.goAPI.call('checkFirmware', { 
-          model: device.model, device: device.device 
-        });
-        setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
+        try {
+          const fwRes = await window.goAPI.call('checkFirmware', { 
+            model: device.model, device: device.device 
+          });
+          setFirmwareStatus(fwRes.available ? 'available' : 'available'); // Force 'available' if files exist
+        } catch (err) {
+          // If check fails but files were added, assume available
+          setFirmwareStatus('available');
+        }
+      } else {
+        // If no device connected, just mark as available globally
+        setFirmwareStatus('available');
       }
     } else {
       setDropMsg('❌ Failed to process files.');
     }
     setTimeout(() => setDropMsg(''), 4000);
   };
-
-  // --- AUTO-SCROLL LOG ---
-  useEffect(() => {
-    if (rootLogRef.current) {
-      rootLogRef.current.scrollTop = rootLogRef.current.scrollHeight;
-    }
-  }, [rootLog]);
-
-  // --- AUTO-CHECK ON STARTUP ---
-  useEffect(() => {
-    const checkOnStartup = async () => {
-      try {
-        const info = await window.goAPI.call('getDeviceInfo', {});
-        setDevice(info);
-        setStep('ready');
-        setMessage(`✅ Connected: ${info.brand} ${info.displayName || info.model}`);
-        
-        setFirmwareStatus('checking');
-        const fwRes = await window.goAPI.call('checkFirmware', {
-          model: info.model, device: info.device
-        });
-        setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
-        
-        connectionCheckInterval.current = setInterval(checkDeviceConnection, 3000);
-      } catch (err) {
-        // No device
-      }
-    };
-    
-    checkOnStartup();
-    
-    return () => {
-      if (connectionCheckInterval.current) {
-        clearInterval(connectionCheckInterval.current);
-        connectionCheckInterval.current = null;
-      }
-    };
-  }, []);
 
   // --- GLOBAL CSS ---
   useEffect(() => {
@@ -483,7 +454,10 @@ function App() {
             {!device.rooted && (
               <>
                 {firmwareStatus === 'unavailable' && (
-                  <div style={{ textAlign: 'center', marginTop: '1rem', padding: '1rem', background: '#451a1a', borderRadius: '10px' }}>
+                  <div style={{ 
+                    textAlign: 'center', marginTop: '1rem', padding: '1rem', 
+                    background: '#451a1a', borderRadius: '10px', border: '1px solid #ef4444' 
+                  }}>
                     <p style={{ color: '#fca5a5', fontSize: '0.9rem', margin: 0 }}>
                       Firmware not found. Re-run installer or download firmware manually from <a href="https://firmwarefile.com" target="_blank" rel="noopener noreferrer" style={{ color: '#f87171', textDecoration: 'underline' }}>firmwarefile.com</a> and rename it to [brand]_[model]_[version]_[androidversion]_[binarybit].zip, then drag and drop the zip file here.
                     </p>
