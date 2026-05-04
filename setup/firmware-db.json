@@ -25,6 +25,19 @@
             "size": "0.16 GB"
             }
         ]
+        },
+        {
+            "brand": "Samsung",
+            "model": "SM-A736B",
+            "displayName": "Galaxy A73 5G",
+            "firmware": [
+                {
+                    "androidVersion": "14",
+                    "url": "https://drive.google.com/file/d/1RI0FbX1LU5Ml4rErFCns7Y9IAuSDBbgq/view?usp=sharing",
+                    "filename": "Root Samsung A73 5G Android 14.zip",
+                    "size": "0.16 GB"
+                }
+            ]
         }
     ]
 }

@@ -10,6 +10,8 @@ function App() {
   const [firmwareStatus, setFirmwareStatus] = useState('idle');
   const [rootState, setRootState] = useState('idle');
   const [rootLog, setRootLog] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
+  const [dropMsg, setDropMsg] = useState('');
 
   // --- REFS ---
   const connectionCheckInterval = useRef(null);
@@ -97,7 +99,6 @@ function App() {
   const handleRoot = async () => {
     if (!device) return;
     
-    // 🔑 SET REF IMMEDIATELY (synchronous)
     isRootingRef.current = true;
     setRootState('rebooting');
     setRootLog(`🔍 Starting root process for ${device.brand}...\n`);
@@ -116,6 +117,32 @@ function App() {
       
       setRootLog(prev => prev + `✅ Firmware: ${firmwareFile}\n⚡ Preparing...\n`);
 
+      // 🔑 EXTRACT FIRMWARE IF IT'S A ZIP
+      let flashFile = firmwareFile;
+      if (firmwareFile.endsWith('.zip')) {
+        setRootLog(prev => prev + '📦 Extracting firmware...\n');
+        
+        const extractResult = await window.goAPI.call('extractFirmware', {
+          zipFile: firmwareFile
+        });
+        
+        if (!extractResult.success) {
+          throw new Error(`Failed to extract firmware: ${extractResult.error}`);
+        }
+        
+        // Find boot.img in extracted files
+        const bootImg = extractResult.files.find(f => 
+          f.includes('boot.img') && !f.includes('vendor_boot')
+        );
+        
+        if (!bootImg) {
+          throw new Error('boot.img not found in firmware. Available files: ' + extractResult.files.join(', '));
+        }
+        
+        flashFile = bootImg;
+        setRootLog(prev => prev + `✅ Extracted: ${bootImg}\n`);
+      }
+
       if (brand === 'samsung') {
         setRootLog(prev => prev + '\n📱 Rebooting to Download Mode...');
         await window.goAPI.call('rebootToDownloadMode', { deviceID: device.serial });
@@ -126,7 +153,7 @@ function App() {
         setRootLog(prev => prev + '\n🔥 Flashing with Odin...');
         
         const result = await window.goAPI.call('odinFlash', {
-          deviceID: device.serial, tarFile: firmwareFile
+          deviceID: device.serial, tarFile: flashFile
         });
         
         if (result.success) {
@@ -141,14 +168,14 @@ function App() {
       } else if (['oneplus', 'google', 'xiaomi', 'motorola'].includes(brand)) {
         setRootLog(prev => prev + '\n📱 Rebooting to Bootloader...');
         await window.goAPI.call('rebootToBootloader', { deviceID: device.serial });
-        setRootLog(prev => prev + '\n⏳ Waiting for Fastboot...');
+        setRootLog(prev => prev + '\n⚠️ On phone: Use volume keys to select "Fastboot"\n⏳ Waiting...');
         await new Promise(r => setTimeout(r, 15000));
         
         setRootState('flashing');
-        setRootLog(prev => prev + '\n🔥 Flashing with Fastboot...');
+        setRootLog(prev => prev + `\n🔥 Flashing: ${flashFile}\n`);
         
         const result = await window.goAPI.call('fastbootFlash', {
-          deviceID: device.serial, bootImage: firmwareFile
+          deviceID: device.serial, bootImage: flashFile
         });
         
         if (result.success) {
@@ -163,16 +190,100 @@ function App() {
       } else {
         throw new Error(`Unsupported brand: ${device.brand}`);
       }
+
+      if (firmwareFile.endsWith('.zip')) {
+        setRootLog(prev => prev + '📦 Extracting firmware to folder...\n');
+        
+        const extractResult = await window.goAPI.call('extractFirmwareToFolder', {
+          zipFile: firmwareFile,
+          brand: device.brand,
+          model: device.model,
+          version: device.buildVersion || '',
+          androidVersion: device.androidVersion || '',
+          binaryBit: device.binaryBit || 'N/A'
+        });
+        
+        if (!extractResult || !extractResult.success) {
+          throw new Error(`Failed to extract: ${extractResult?.error || 'Unknown error'}`);
+        }
+        
+        setRootLog(prev => prev + `✅ Extracted to: ${path.basename(extractResult.folder)}\n`);
+        setRootLog(prev => prev + `📁 Files: ${extractResult.count}\n`);
+        
+        // Find boot.img in extracted files
+        const bootImg = extractResult.files.find(f => 
+          f.includes('boot.img') && !f.includes('vendor_boot')
+        );
+        
+        if (!bootImg) {
+          const available = extractResult.files.map(f => path.basename(f)).join(', ');
+          throw new Error(`boot.img not found. Available: ${available}`);
+        }
+        
+        flashFile = bootImg;
+        setRootLog(prev => prev + `🔧 Using: ${path.basename(bootImg)}\n`);
+      }
       
     } catch (err) {
       setRootState('error');
       setRootLog(prev => prev + `\n\n❌ Error: ${err.message}`);
     } finally {
-      // Reset ref after 15 seconds
       setTimeout(() => {
         isRootingRef.current = false;
       }, 15000);
     }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    setDropMsg('📦 Processing dropped files...');
+
+    const files = Array.from(e.dataTransfer.files);
+    const zips = files.filter(f => f.path?.endsWith('.zip'));
+
+    if (zips.length === 0) {
+      setDropMsg('❌ Only .zip firmware files are supported.');
+      setTimeout(() => setDropMsg(''), 3000);
+      return;
+    }
+
+    let successCount = 0;
+    for (const file of zips) {
+      try {
+        const result = await window.goAPI.call('handleDroppedFirmware', { filePath: file.path });
+        if (result?.success) successCount++;
+      } catch (err) {
+        console.error('Drop failed:', err);
+      }
+    }
+
+    if (successCount > 0) {
+      setDropMsg(`✅ Added ${successCount} firmware file(s)!`);
+      // Refresh firmware status if a device is connected
+      if (device) {
+        const fwRes = await window.goAPI.call('checkFirmware', { 
+          model: device.model, device: device.device 
+        });
+        setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
+      }
+    } else {
+      setDropMsg('❌ Failed to process files.');
+    }
+    setTimeout(() => setDropMsg(''), 4000);
   };
 
   // --- AUTO-SCROLL LOG ---
@@ -229,6 +340,14 @@ function App() {
     document.head.appendChild(styleSheet);
     return () => { document.head.removeChild(styleSheet); };
   }, []);
+
+  const dropOverlayStyle = isDragging ? {
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(15, 23, 42, 0.85)', zIndex: 1000,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    color: '#38bdf8', fontSize: '1.5rem', fontWeight: '600',
+    border: '4px dashed #38bdf8', pointerEvents: 'none'
+  } : { display: 'none' };
 
   // --- STYLES ---
   const styles = {
@@ -310,7 +429,12 @@ function App() {
 
   // --- RENDER ---
   return (
-    <div style={styles.container}>
+    <div 
+      style={styles.container} 
+      onDragOver={handleDragOver} 
+      onDragLeave={handleDragLeave} 
+      onDrop={handleDrop}
+    >
       <header style={styles.header}>
         <h1 style={styles.title}>🔓 AutoRoot</h1>
         <p style={styles.subtitle}>Secure Android Root Automation</p>
@@ -350,6 +474,8 @@ function App() {
             <div style={styles.infoGrid}>
               <div><b>Brand:</b> {device.brand}</div>
               <div><b>Model:</b> {device.model}</div>
+              <div><b>Version:</b> {device.buildVersion || "N/A"}</div>
+              <div><b>Binary/Bit:</b> {device.binaryBit || "N/A"}</div>
               <div><b>Android:</b> {device.androidVersion}</div>
               <div><b>Rooted:</b> {device.rooted ? 'Yes ✓' : 'No'}</div>
             </div>
@@ -359,7 +485,7 @@ function App() {
                 {firmwareStatus === 'unavailable' && (
                   <div style={{ textAlign: 'center', marginTop: '1rem', padding: '1rem', background: '#451a1a', borderRadius: '10px' }}>
                     <p style={{ color: '#fca5a5', fontSize: '0.9rem', margin: 0 }}>
-                      Firmware not found. Re-run installer or download firmware manually from <a href="https://firmwarefile.com" target="_blank" rel="noopener noreferrer" style={{ color: '#f87171', textDecoration: 'underline' }}>firmwarefile.com</a> and place it in the firmware directory and rename it to "{device.model}_{device.androidVersion}_firmware".
+                      Firmware not found. Re-run installer or download firmware manually from <a href="https://firmwarefile.com" target="_blank" rel="noopener noreferrer" style={{ color: '#f87171', textDecoration: 'underline' }}>firmwarefile.com</a> and rename it to [brand]_[model]_[version]_[androidversion]_[binarybit].zip, then drag and drop the zip file here.
                     </p>
                   </div>
                 )}

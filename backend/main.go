@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"path/filepath"
+	// "regexp"
 )
 
 type Request struct {
@@ -38,7 +39,27 @@ func main() {
 		case "ping":
 			resp.Result = "pong"
 		case "getDeviceInfo":
-			resp.Result, resp.Error = getDeviceInfo()
+			deviceInfo, errStr := getDeviceInfo()
+			if errStr != "" {
+				resp.Error = errStr
+				break
+			}
+			resp.Result = deviceInfo
+			deviceMap, ok := deviceInfo.(map[string]interface{})
+			if !ok {
+				break
+			}
+			fwRes, _ := checkFirmware(map[string]interface{}{
+				"model":  deviceMap["model"],
+				"device": deviceMap["device"],
+			})
+			fwAvailable := false
+			if fwMap, ok := fwRes.(map[string]interface{}); ok {
+				if avail, exists := fwMap["available"].(bool); exists {
+					fwAvailable = avail
+				}
+			}
+			SaveDeviceHistory(deviceMap, fwAvailable)
 		case "rootDevice":
 			resp.Result, resp.Error = rootDevice()
 		case "checkFirmware":
@@ -46,11 +67,9 @@ func main() {
 		case "rebootToDownloadMode":
 			deviceID := req.Payload.(map[string]interface{})["deviceID"].(string)
 			resp.Result, resp.Error = rebootToDownloadMode(deviceID)
-			
 		case "findFirmwareFiles":
 			model := req.Payload.(map[string]interface{})["model"].(string)
 			resp.Result, resp.Error = findFirmwareFiles(model)
-			
 		case "flashWithOdin":
 			payload := req.Payload.(map[string]interface{})
 			deviceID := payload["deviceID"].(string)
@@ -63,7 +82,6 @@ func main() {
 					fwMap[k] = str
 				}
 			}
-			
 			resp.Result, resp.Error = flashWithOdin(deviceID, fwMap)
 			
 		case "verifyRootAfterFlash":
@@ -75,14 +93,16 @@ func main() {
 		case "rebootToBootloader":
 			deviceID := req.Payload.(map[string]interface{})["deviceID"].(string)
 			resp.Result, resp.Error = rebootToBootloader(deviceID)
-			
+		case "fastbootFlash":
+			payload := req.Payload.(map[string]interface{})
+			deviceID := payload["deviceID"].(string)
+			bootImage := payload["bootImage"].(string)
+			resp.Result, resp.Error = flashWithFastboot(deviceID, bootImage)
 		case "waitForFastboot":
 			resp.Result, resp.Error = waitForFastboot()
-			
 		case "findOnePlusFirmware":
 			model := req.Payload.(map[string]interface{})["model"].(string)
 			resp.Result, resp.Error = findOnePlusFirmware(model)
-			
 		case "flashWithFastboot":
 			payload := req.Payload.(map[string]interface{})
 			deviceID := payload["deviceID"].(string)
@@ -97,6 +117,30 @@ func main() {
 			deviceID := payload["deviceID"].(string)
 			tarFile := payload["tarFile"].(string)
 			resp.Result, resp.Error = FlashWithOdin(deviceID, tarFile)
+		case "extractFirmwareToFolder":
+			payload := req.Payload.(map[string]interface{})
+			zipFile := payload["zipFile"].(string)
+			brand := payload["brand"].(string)
+			model := payload["model"].(string)
+			version := payload["version"].(string)
+			androidVer := payload["androidVersion"].(string)
+			binaryBit := payload["binaryBit"].(string)
+			
+			folder, files, errStr := ExtractFirmwareToFolder(zipFile, brand, model, version, androidVer, binaryBit)
+			if errStr != "" {
+				resp.Result = map[string]interface{}{"success": false, "error": errStr}
+			} else {
+				resp.Result = map[string]interface{}{
+					"success": true,
+					"folder":  folder,
+					"files":   files,
+					"count":   len(files),
+				}
+			}
+		case "handleDroppedFirmware":
+			payload := req.Payload.(map[string]interface{})
+			filePath, _ := payload["filePath"].(string)
+			resp.Result, resp.Error = handleDroppedFirmware(filePath)
 		default:
 			resp.Error = "unknown action"
 		}
@@ -189,7 +233,6 @@ func getDeviceInfo() (interface{}, string) {
 
 	deviceID := fields[0]
 	
-	// Fetch device properties
 	model, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.model")
 	brand, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.brand")
 	device, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.device")
@@ -197,19 +240,36 @@ func getDeviceInfo() (interface{}, string) {
 	version, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.release")
 	rootOut, _, _ := runAdb("-s", deviceID, "shell", "su", "-c", "id")
 	
-	// Clean up strings
 	brand = strings.TrimSpace(brand)
 	model = strings.TrimSpace(model)
 	device = strings.TrimSpace(device)
 	marketName = strings.TrimSpace(marketName)
 	version = strings.TrimSpace(version)
 	
-	// 🔑 KEY FIX: Get the marketing name using our lookup function
 	displayName := getMarketingName(strings.ToLower(brand), model)
 	
-	// If marketname property exists (some phones have it), prefer that
 	if marketName != "" {
 		displayName = marketName
+	}
+
+	pdaOut, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.PDA")
+	buildVersion := strings.TrimSpace(pdaOut)
+
+	if buildVersion == "" {
+		displayOut, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.display.id")
+		buildVersion = strings.TrimSpace(displayOut)
+	}
+
+	if buildVersion == "" {
+		fpOut, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.fingerprint")
+		buildVersion = strings.TrimSpace(fpOut)
+	}
+
+	binaryFull := buildVersion
+	binaryBit := "N/A"
+
+	if len(binaryFull) >= 9 {
+		binaryBit = string(binaryFull[8])
 	}
 
 	return map[string]interface{}{
@@ -219,6 +279,8 @@ func getDeviceInfo() (interface{}, string) {
 		"device":         device,
 		"serial":         deviceID,
 		"androidVersion": version,
+		"buildVersion":   buildVersion,
+		"binaryBit":      binaryBit,
 		"rooted":         strings.Contains(rootOut, "uid=0"),
 	}, ""
 }
