@@ -61,6 +61,11 @@ var deviceNames = map[string]string{
 	// OnePlus
 	"CPH2205":    "OnePlus 9",
 	"CPH2213":    "OnePlus 9 Pro",
+	"LE2120":     "OnePlus 9 Pro (China)",
+	"LE2121":     "OnePlus 9 Pro (India)",
+	"LE2123":     "OnePlus 9 Pro (NA)",
+	"LE2125":     "OnePlus 9 Pro (EU)",
+	"LE2127":     "OnePlus 9 Pro (T-Mobile)",
 	"CPH2305":    "OnePlus 10 Pro",
 	"CPH2415":    "OnePlus 11",
 	"NE2213":     "OnePlus 10 Pro",

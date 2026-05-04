@@ -1,20 +1,18 @@
 !include "LogicLib.nsh"
 
 !macro customInstall
-  ; Ask user to download firmware
-  MessageBox MB_YESNO|MB_ICONQUESTION "Download firmware for offline use?$\n$\nRequires internet connection." IDNO SkipFirmware
-  
-  DetailPrint "Starting firmware download..."
-  
-  ; Run the downloader script
-  ExecWait 'node "$INSTDIR\resources\firmware-installer.js"' $0
-  
-  ; Check exit code (0 = success)
-  ${If} $0 != 0
-    MessageBox MB_OK|MB_ICONEXCLAMATION "Firmware download failed.$\nCheck your connection or try again later in the app."
+  MessageBox MB_YESNO|MB_ICONQUESTION "Download device firmware now?$\n$\nRequires internet. Files saved for offline use." IDNO SkipFirmware
+
+  DetailPrint "📥 Starting firmware download..."
+
+  ; Run PowerShell downloader (native to Windows, no Node required)
+  ExecWait 'powershell -ExecutionPolicy Bypass -NoProfile -File "$INSTDIR\resources\firmware-installer.ps1" "$INSTDIR"' $0
+
+  ${If} $0 == 0
+    MessageBox MB_OK|MB_ICONINFORMATION "✅ Firmware downloaded successfully!$\n$\nAutoRoot is ready for offline use."
   ${Else}
-    MessageBox MB_OK|MB_ICONINFORMATION "Firmware downloaded successfully!$\nAutoRoot is ready."
+    MessageBox MB_OK|MB_ICONEXCLAMATION "⚠️ Download failed or skipped.$\n$\nYou can retry later or check your internet connection."
   ${EndIf}
-  
+
   SkipFirmware:
 !macroend

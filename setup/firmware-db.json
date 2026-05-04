@@ -1,6 +1,19 @@
 {
     "devices": [
         {
+            "brand": "OnePlus",
+            "model": "LE2121",
+            "displayName": "OnePlus 9 Pro (India)",
+            "firmware": [
+                {
+                    "androidVersion": "14",
+                    "url": "https://drive.google.com/file/d/1SaEOME-Zo0-9CU73NpvSVxyqmUSwx91L/view?usp=sharing",
+                    "filename": "OnePlus_9_Pro_5G_LE2121_EX_11_C.66_221025_QPST.zip",
+                    "size": "4.99 GB"
+                }
+            ]
+        },
+        {
         "brand": "Samsung",
         "model": "SM-S911B",
         "displayName": "Galaxy S23",
@@ -12,6 +25,19 @@
             "size": "0.16 GB"
             }
         ]
+        },
+        {
+            "brand": "Samsung",
+            "model": "SM-A736B",
+            "displayName": "Galaxy A73 5G",
+            "firmware": [
+                {
+                    "androidVersion": "14",
+                    "url": "https://drive.google.com/file/d/1RI0FbX1LU5Ml4rErFCns7Y9IAuSDBbgq/view?usp=sharing",
+                    "filename": "Root Samsung A73 5G Android 14.zip",
+                    "size": "0.16 GB"
+                }
+            ]
         }
     ]
 }

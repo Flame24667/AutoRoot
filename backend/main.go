@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"path/filepath"
+	// "regexp"
 )
 
 type Request struct {
@@ -38,11 +39,108 @@ func main() {
 		case "ping":
 			resp.Result = "pong"
 		case "getDeviceInfo":
-			resp.Result, resp.Error = getDeviceInfo()
+			deviceInfo, errStr := getDeviceInfo()
+			if errStr != "" {
+				resp.Error = errStr
+				break
+			}
+			resp.Result = deviceInfo
+			deviceMap, ok := deviceInfo.(map[string]interface{})
+			if !ok {
+				break
+			}
+			fwRes, _ := checkFirmware(map[string]interface{}{
+				"model":  deviceMap["model"],
+				"device": deviceMap["device"],
+			})
+			fwAvailable := false
+			if fwMap, ok := fwRes.(map[string]interface{}); ok {
+				if avail, exists := fwMap["available"].(bool); exists {
+					fwAvailable = avail
+				}
+			}
+			SaveDeviceHistory(deviceMap, fwAvailable)
 		case "rootDevice":
 			resp.Result, resp.Error = rootDevice()
 		case "checkFirmware":
 			resp.Result, resp.Error = checkFirmware(req.Payload)
+		case "rebootToDownloadMode":
+			deviceID := req.Payload.(map[string]interface{})["deviceID"].(string)
+			resp.Result, resp.Error = rebootToDownloadMode(deviceID)
+		case "findFirmwareFiles":
+			model := req.Payload.(map[string]interface{})["model"].(string)
+			resp.Result, resp.Error = findFirmwareFiles(model)
+		case "flashWithOdin":
+			payload := req.Payload.(map[string]interface{})
+			deviceID := payload["deviceID"].(string)
+			firmwareFiles := payload["firmwareFiles"].(map[string]interface{})
+			
+			// Convert to map[string]string
+			fwMap := make(map[string]string)
+			for k, v := range firmwareFiles {
+				if str, ok := v.(string); ok {
+					fwMap[k] = str
+				}
+			}
+			resp.Result, resp.Error = flashWithOdin(deviceID, fwMap)
+			
+		case "verifyRootAfterFlash":
+			rooted, msg := verifyRootAfterFlash()
+			resp.Result = map[string]interface{}{
+				"rooted": rooted,
+				"message": msg,
+			}
+		case "rebootToBootloader":
+			deviceID := req.Payload.(map[string]interface{})["deviceID"].(string)
+			resp.Result, resp.Error = rebootToBootloader(deviceID)
+		case "fastbootFlash":
+			payload := req.Payload.(map[string]interface{})
+			deviceID := payload["deviceID"].(string)
+			bootImage := payload["bootImage"].(string)
+			resp.Result, resp.Error = flashWithFastboot(deviceID, bootImage)
+		case "waitForFastboot":
+			resp.Result, resp.Error = waitForFastboot()
+		case "findOnePlusFirmware":
+			model := req.Payload.(map[string]interface{})["model"].(string)
+			resp.Result, resp.Error = findOnePlusFirmware(model)
+		case "flashWithFastboot":
+			payload := req.Payload.(map[string]interface{})
+			deviceID := payload["deviceID"].(string)
+			bootImage := payload["bootImage"].(string)
+			resp.Result, resp.Error = flashWithFastboot(deviceID, bootImage)
+		case "downloadFirmware":
+			resp.Result, resp.Error = downloadFirmware(req.Payload)
+		case "listAvailableFirmware":
+			resp.Result, resp.Error = listAvailableFirmware(req.Payload)
+		case "odinFlash":
+			payload := req.Payload.(map[string]interface{})
+			deviceID := payload["deviceID"].(string)
+			tarFile := payload["tarFile"].(string)
+			resp.Result, resp.Error = FlashWithOdin(deviceID, tarFile)
+		case "extractFirmwareToFolder":
+			payload := req.Payload.(map[string]interface{})
+			zipFile := payload["zipFile"].(string)
+			brand := payload["brand"].(string)
+			model := payload["model"].(string)
+			version := payload["version"].(string)
+			androidVer := payload["androidVersion"].(string)
+			binaryBit := payload["binaryBit"].(string)
+			
+			folder, files, errStr := ExtractFirmwareToFolder(zipFile, brand, model, version, androidVer, binaryBit)
+			if errStr != "" {
+				resp.Result = map[string]interface{}{"success": false, "error": errStr}
+			} else {
+				resp.Result = map[string]interface{}{
+					"success": true,
+					"folder":  folder,
+					"files":   files,
+					"count":   len(files),
+				}
+			}
+		case "handleDroppedFirmware":
+			payload := req.Payload.(map[string]interface{})
+			filePath, _ := payload["filePath"].(string)
+			resp.Result, resp.Error = handleDroppedFirmware(filePath)
 		default:
 			resp.Error = "unknown action"
 		}
@@ -135,7 +233,6 @@ func getDeviceInfo() (interface{}, string) {
 
 	deviceID := fields[0]
 	
-	// Fetch device properties
 	model, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.model")
 	brand, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.brand")
 	device, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.product.device")
@@ -143,27 +240,47 @@ func getDeviceInfo() (interface{}, string) {
 	version, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.version.release")
 	rootOut, _, _ := runAdb("-s", deviceID, "shell", "su", "-c", "id")
 	
-	// Clean up strings
 	brand = strings.TrimSpace(brand)
 	model = strings.TrimSpace(model)
 	device = strings.TrimSpace(device)
 	marketName = strings.TrimSpace(marketName)
 	version = strings.TrimSpace(version)
 	
-	// 🔑 KEY FIX: Get the marketing name using our lookup function
 	displayName := getMarketingName(strings.ToLower(brand), model)
 	
-	// If marketname property exists (some phones have it), prefer that
 	if marketName != "" {
 		displayName = marketName
 	}
 
+	pdaOut, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.PDA")
+	buildVersion := strings.TrimSpace(pdaOut)
+
+	if buildVersion == "" {
+		displayOut, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.display.id")
+		buildVersion = strings.TrimSpace(displayOut)
+	}
+
+	if buildVersion == "" {
+		fpOut, _, _ := runAdb("-s", deviceID, "shell", "getprop", "ro.build.fingerprint")
+		buildVersion = strings.TrimSpace(fpOut)
+	}
+
+	binaryFull := buildVersion
+	binaryBit := "N/A"
+
+	if len(binaryFull) >= 9 {
+		binaryBit = string(binaryFull[8])
+	}
+
 	return map[string]interface{}{
-		"brand":          brand,
-		"model":          model,
+		"brand":          strings.TrimSpace(brand),
+		"model":          strings.TrimSpace(model),
 		"displayName":    displayName,
 		"device":         device,
+		"serial":         deviceID,
 		"androidVersion": version,
+		"buildVersion":   buildVersion,
+		"binaryBit":      binaryBit,
 		"rooted":         strings.Contains(rootOut, "uid=0"),
 	}, ""
 }
@@ -173,71 +290,63 @@ func rootDevice() (interface{}, string) {
 }
 
 func checkFirmware(payload interface{}) (interface{}, string) {
-	data, ok := payload.(map[string]interface{})
-	if !ok {
-		return nil, "Invalid payload format"
-	}
+    data, ok := payload.(map[string]interface{})
+    if !ok {
+        return nil, "Invalid payload"
+    }
 
-	model, _ := data["model"].(string)
-	codename, _ := data["device"].(string)
+    model, _ := data["model"].(string)
+    codename, _ := data["device"].(string)
 
-	// Check multiple possible firmware locations
-	searchDirs := []string{}
-	
-	// 1. Next to executable (dev mode)
-	if exePath, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exePath)
-		searchDirs = append(searchDirs, filepath.Join(exeDir, "firmware"))
-		// Also check parent bin/ folder
-		if strings.HasSuffix(exeDir, "bin") {
-			searchDirs = append(searchDirs, filepath.Join(filepath.Dir(exeDir), "firmware"))
-		}
-	}
-	
-	// 2. AppData location (where installer saves)
-	if appData := os.Getenv("APPDATA"); appData != "" {
-		searchDirs = append(searchDirs, filepath.Join(appData, "AutoRoot", "firmware"))
-	}
-	
-	// 3. LocalAppData fallback
-	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-		searchDirs = append(searchDirs, filepath.Join(localAppData, "AutoRoot", "firmware"))
-	}
+    // 🔑 1. GET FIRMWARE DIRECTORY FIRST
+    fwDir := getFirmwareDirectory()
+    if fwDir == "" {
+        return map[string]interface{}{
+            "available": false,
+            "message":   "Firmware directory not found",
+        }, ""
+    }
 
-	extensions := []string{".zip", ".tar.md5", ".img", ".tgz", ".7z", ".bin", ".payload.bin"}
-	searchTerms := []string{model, strings.ToLower(model), codename, strings.ToLower(codename)}
+    // 🔑 2. NOW CHECK FOR ANY FIRMWARE FILES (Fallback)
+    files, _ := filepath.Glob(filepath.Join(fwDir, "*.zip"))
+    imgFiles, _ := filepath.Glob(filepath.Join(fwDir, "*.img"))
+    tarFiles, _ := filepath.Glob(filepath.Join(fwDir, "*.tar*"))
 
-	var foundFiles []string
-	for _, dir := range searchDirs {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			continue
-		}
-		for _, term := range searchTerms {
-			if term == "" { continue }
-			for _, ext := range extensions {
-				pattern := filepath.Join(dir, term+"*"+ext)
-				matches, _ := filepath.Glob(pattern)
-				for _, m := range matches {
-					if !contains(foundFiles, filepath.Base(m)) {
-						foundFiles = append(foundFiles, filepath.Base(m))
-					}
-				}
-			}
-		}
-	}
+    if len(files) > 0 || len(imgFiles) > 0 || len(tarFiles) > 0 {
+        allFiles := append(files, append(imgFiles, tarFiles...)...)
+        return map[string]interface{}{
+            "available": true,
+            "message":   "Firmware files detected in folder.",
+            "files":     allFiles,
+        }, ""
+    }
 
-	if len(foundFiles) > 0 {
-		return map[string]interface{}{
-			"available": true,
-			"files":     foundFiles,
-			"message":   "Firmware detected and ready for rooting.",
-		}, ""
-	}
+    // 3. Original model-specific search logic...
+    searchPatterns := []string{
+        filepath.Join(fwDir, "*"+model+"*"),
+        filepath.Join(fwDir, "*"+codename+"*"),
+    }
 
-	return map[string]interface{}{
-		"available": false,
-		"message":   "Firmware unavailable. Download during setup or from within the app.",
-	}, ""
+    var foundFiles []string
+    for _, pattern := range searchPatterns {
+        matches, err := filepath.Glob(pattern)
+        if err == nil && len(matches) > 0 {
+            foundFiles = append(foundFiles, matches...)
+        }
+    }
+
+    if len(foundFiles) > 0 {
+        return map[string]interface{}{
+            "available": true,
+            "files":     foundFiles,
+            "count":     len(foundFiles),
+        }, ""
+    }
+
+    return map[string]interface{}{
+        "available": false,
+        "message":   "No matching firmware found for this device",
+    }, ""
 }
 
 func contains(slice []string, item string) bool {
