@@ -21,6 +21,7 @@
         "setup:gui": "cd setup && npm install && node setup-gui.js"
     },
     "devDependencies": {
+        "archiver": "^7.0.1",
         "concurrently": "^9.1.0",
         "cross-env": "^7.0.3",
         "electron": "^41.2.1",

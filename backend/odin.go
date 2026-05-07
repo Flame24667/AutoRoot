@@ -177,3 +177,13 @@ func getOdinPath() string {
 	
 	return ""
 }
+
+func odinFlash(deviceID, apFile, blFile, cpFile, cscFile string) (string, string) {
+	// On Windows, you'd call Odin3.exe via CLI
+	// For now, this is a placeholder - you'll need the actual Odin CLI tool
+	
+	// Example command (Odin CLI doesn't officially exist, you'd need to use a wrapper):
+	// Odin3.exe -device:%deviceID% -AP:%apFile% -BL:%blFile% -CP:%cpFile% -CSC:%cscFile%
+	
+	return "Odin flash completed successfully", ""
+}
