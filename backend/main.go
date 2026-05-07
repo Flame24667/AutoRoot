@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"strings"
 	"path/filepath"
-	// "regexp"
 )
 
 type Request struct {
@@ -75,7 +74,6 @@ func main() {
 			deviceID := payload["deviceID"].(string)
 			firmwareFiles := payload["firmwareFiles"].(map[string]interface{})
 			
-			// Convert to map[string]string
 			fwMap := make(map[string]string)
 			for k, v := range firmwareFiles {
 				if str, ok := v.(string); ok {
@@ -83,7 +81,6 @@ func main() {
 				}
 			}
 			resp.Result, resp.Error = flashWithOdin(deviceID, fwMap)
-			
 		case "verifyRootAfterFlash":
 			rooted, msg := verifyRootAfterFlash()
 			resp.Result = map[string]interface{}{
@@ -118,18 +115,25 @@ func main() {
 			tarFile := payload["tarFile"].(string)
 			resp.Result, resp.Error = FlashWithOdin(deviceID, tarFile)
 		case "extractFirmwareToFolder":
-			payload := req.Payload.(map[string]interface{})
-			zipFile := payload["zipFile"].(string)
-			brand := payload["brand"].(string)
-			model := payload["model"].(string)
-			version := payload["version"].(string)
-			androidVer := payload["androidVersion"].(string)
-			binaryBit := payload["binaryBit"].(string)
+			fmt.Println("📦 extractFirmwareToFolder called")
+			p := req.Payload.(map[string]interface{})
 			
+			zipFile, _ := p["zipFile"].(string)
+			brand, _ := p["brand"].(string)
+			model, _ := p["model"].(string)
+			version, _ := p["version"].(string)
+			androidVer, _ := p["androidVersion"].(string)
+			binaryBit, _ := p["binaryBit"].(string)
+
+			fmt.Printf("   Params: zip=%s, brand=%s, model=%s\n", zipFile, brand, model)
+
 			folder, files, errStr := ExtractFirmwareToFolder(zipFile, brand, model, version, androidVer, binaryBit)
+			
 			if errStr != "" {
+				fmt.Printf("   ❌ Error: %s\n", errStr)
 				resp.Result = map[string]interface{}{"success": false, "error": errStr}
 			} else {
+				fmt.Printf("   ✅ Success: %d files\n", len(files))
 				resp.Result = map[string]interface{}{
 					"success": true,
 					"folder":  folder,
@@ -141,6 +145,45 @@ func main() {
 			payload := req.Payload.(map[string]interface{})
 			filePath, _ := payload["filePath"].(string)
 			resp.Result, resp.Error = handleDroppedFirmware(filePath)
+		case "extractFirmware":
+			payload := req.Payload.(map[string]interface{})
+			zipFile := payload["zipFile"].(string)
+			
+			extractDir, files, errStr := ExtractFirmwareToFolder(
+				zipFile,
+				"", "", "", "", "",
+			)
+			
+			if errStr != "" {
+				resp.Result = map[string]interface{}{"success": false, "error": errStr}
+			} else {
+				resp.Result = map[string]interface{}{
+					"success": true,
+					"folder":  extractDir,
+					"files":   files,
+				}
+			}
+		case "transferFileToDevice":
+			payload := req.Payload.(map[string]interface{})
+			filePath, _ := payload["filePath"].(string)
+			destPath, _ := payload["destination"].(string)
+			resp.Result, resp.Error = transferFileToDevice(filePath, destPath)
+		case "getPatchedFileFromDevice":
+			payload := req.Payload.(map[string]interface{})
+			sourcePath, _ := payload["sourcePath"].(string)
+			resp.Result, resp.Error = getPatchedFileFromDevice(sourcePath)
+		case "ensureMagiskInstalled":
+			deviceID := req.Payload.(map[string]interface{})["deviceID"].(string)
+			msg, errStr := ensureMagiskInstalled(deviceID)
+			resp.Result = map[string]interface{}{"message": msg}
+			resp.Error = errStr
+		case "keepDeviceAwake":
+			deviceID := req.Payload.(map[string]interface{})["deviceID"].(string)
+			keepDeviceAwake(deviceID)
+			resp.Result = map[string]interface{}{"success": true}
+		case "getLatestMagiskPatchedFile":
+			deviceID := req.Payload.(map[string]interface{})["deviceID"].(string)
+			resp.Result, resp.Error = getLatestMagiskPatchedFile(deviceID)
 		default:
 			resp.Error = "unknown action"
 		}
@@ -296,9 +339,8 @@ func checkFirmware(payload interface{}) (interface{}, string) {
     }
 
     model, _ := data["model"].(string)
-    codename, _ := data["device"].(string)
-
-    // 🔑 1. GET FIRMWARE DIRECTORY FIRST
+    brand, _ := data["brand"].(string)
+    
     fwDir := getFirmwareDirectory()
     if fwDir == "" {
         return map[string]interface{}{
@@ -306,47 +348,128 @@ func checkFirmware(payload interface{}) (interface{}, string) {
             "message":   "Firmware directory not found",
         }, ""
     }
+    
+    fmt.Printf("\n🔍 DEBUG: Looking for model=%s, brand=%s\n", model, brand)
+    fmt.Printf("🔍 DEBUG: Firmware dir=%s\n", fwDir)
 
-    // 🔑 2. NOW CHECK FOR ANY FIRMWARE FILES (Fallback)
-    files, _ := filepath.Glob(filepath.Join(fwDir, "*.zip"))
-    imgFiles, _ := filepath.Glob(filepath.Join(fwDir, "*.img"))
-    tarFiles, _ := filepath.Glob(filepath.Join(fwDir, "*.tar*"))
-
-    if len(files) > 0 || len(imgFiles) > 0 || len(tarFiles) > 0 {
-        allFiles := append(files, append(imgFiles, tarFiles...)...)
-        return map[string]interface{}{
-            "available": true,
-            "message":   "Firmware files detected in folder.",
-            "files":     allFiles,
-        }, ""
+    // 🔑 Extract model code (SM-A736B → A736B)
+    modelCode := model
+    if strings.HasPrefix(model, "SM-") {
+        modelCode = strings.TrimPrefix(model, "SM-")
     }
-
-    // 3. Original model-specific search logic...
-    searchPatterns := []string{
-        filepath.Join(fwDir, "*"+model+"*"),
-        filepath.Join(fwDir, "*"+codename+"*"),
-    }
-
+    
+    fmt.Printf("🔍 DEBUG: Model code to search: %s\n\n", modelCode)
+    
     var foundFiles []string
-    for _, pattern := range searchPatterns {
-        matches, err := filepath.Glob(pattern)
-        if err == nil && len(matches) > 0 {
-            foundFiles = append(foundFiles, matches...)
+    var allFiles []string
+    
+    // 🔑 List EVERYTHING in firmware directory
+    fmt.Println("📁 All files in firmware directory:")
+    filepath.Walk(fwDir, func(path string, info os.FileInfo, err error) error {
+        if err != nil || info.IsDir() {
+            return nil
+        }
+        
+        relPath, _ := filepath.Rel(fwDir, path)
+        fmt.Printf("   - %s\n", relPath)
+        allFiles = append(allFiles, path)
+        return nil
+    })
+    
+    // 🔑 Search for files containing model code
+    fmt.Printf("\n🔍 Searching for files containing '%s':\n", modelCode)
+    for _, path := range allFiles {
+        basename := strings.ToUpper(filepath.Base(path))
+        
+        if strings.Contains(basename, strings.ToUpper(modelCode)) {
+            fmt.Printf("   ✅ MATCH: %s\n", basename)
+            foundFiles = append(foundFiles, path)
+        } else {
+            fmt.Printf("   ❌ skip: %s\n", basename)
         }
     }
-
+    
+    // 🔑 Categorize Samsung files
+    if strings.ToLower(brand) == "samsung" && len(foundFiles) > 0 {
+        var apFiles, blFiles, cpFiles, cscFiles []string
+        
+        for _, f := range foundFiles {
+            basename := strings.ToUpper(filepath.Base(f))
+            
+            if strings.Contains(basename, "AP_") || strings.HasPrefix(basename, "AP_") {
+                apFiles = append(apFiles, f)
+                fmt.Printf("   📱 AP file: %s\n", basename)
+            } else if strings.Contains(basename, "BL_") || strings.HasPrefix(basename, "BL_") {
+                blFiles = append(blFiles, f)
+                fmt.Printf("   📱 BL file: %s\n", basename)
+            } else if strings.Contains(basename, "CP_") || strings.HasPrefix(basename, "CP_") {
+                cpFiles = append(cpFiles, f)
+                fmt.Printf("   📱 CP file: %s\n", basename)
+            } else if strings.Contains(basename, "CSC_") && !strings.Contains(basename, "HOME_CSC") {
+                cscFiles = append(cscFiles, f)
+                fmt.Printf("   📱 CSC file: %s\n", basename)
+            }
+        }
+        
+        fmt.Printf("\n📊 Summary: AP=%d, BL=%d, CP=%d, CSC=%d\n", 
+            len(apFiles), len(blFiles), len(cpFiles), len(cscFiles))
+        
+        if len(apFiles) > 0 && len(blFiles) > 0 && len(cpFiles) > 0 && len(cscFiles) > 0 {
+            allFiles := append(apFiles, append(blFiles, append(cpFiles, cscFiles...)...)...)
+            return map[string]interface{}{
+                "available": true,
+                "files":     allFiles,
+                "count":     len(allFiles),
+            }, ""
+        }
+        
+        missing := []string{}
+        if len(apFiles) == 0 { missing = append(missing, "AP") }
+        if len(blFiles) == 0 { missing = append(missing, "BL") }
+        if len(cpFiles) == 0 { missing = append(missing, "CP") }
+        if len(cscFiles) == 0 { missing = append(missing, "CSC") }
+        
+        return map[string]interface{}{
+            "available": false,
+            "message":   fmt.Sprintf("Missing: %s (Found %d files total)", strings.Join(missing, ", "), len(foundFiles)),
+        }, ""
+    }
+    
     if len(foundFiles) > 0 {
         return map[string]interface{}{
             "available": true,
             "files":     foundFiles,
-            "count":     len(foundFiles),
         }, ""
     }
-
+    
     return map[string]interface{}{
         "available": false,
-        "message":   "No matching firmware found for this device",
+        "message":   fmt.Sprintf("No files found containing '%s'", modelCode),
     }, ""
+}
+
+func isDirectory(path string) bool {
+    info, err := os.Stat(path)
+    return err == nil && info.IsDir()
+}
+
+func isFirmwareFile(path string) bool {
+    basename := strings.ToLower(filepath.Base(path))
+    return strings.HasSuffix(basename, ".tar.md5") || 
+           strings.HasSuffix(basename, ".img") || 
+           strings.HasSuffix(basename, ".zip")
+}
+
+func isWrongModel(filename, targetModel string) bool {
+    samsungModels := []string{"SM-A", "SM-G", "SM-N", "SM-S", "SM-T", "SM-M"}
+    
+    for _, prefix := range samsungModels {
+        if strings.Contains(filename, prefix) && !strings.Contains(filename, targetModel) {
+            return true
+        }
+    }
+    
+    return false
 }
 
 func contains(slice []string, item string) bool {

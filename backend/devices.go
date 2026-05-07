@@ -18,7 +18,8 @@ var deviceNames = map[string]string{
 	"SM-S926B":   "Galaxy S24+",
 	"SM-S928B":   "Galaxy S24 Ultra",
 	
-	// Samsung Galaxy A Series
+	// Samsung Galaxy A 
+	"SM-A045F":   "Galaxy A04",
 	"SM-A125F":   "Galaxy A12",
 	"SM-A135F":   "Galaxy A13",
 	"SM-A225F":   "Galaxy A22 5G",
