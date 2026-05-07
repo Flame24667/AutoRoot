@@ -9,9 +9,11 @@ import (
 	"strings"
 )
 
-// ExtractFirmwareToFolder extracts firmware zip to a named folder and deletes the zip
 func ExtractFirmwareToFolder(zipPath string, brand, model, version, androidVer, binaryBit string) (string, []string, string) {
-	// 🔑 Create folder name: [brand]_[model]_[version]_[android]_[bit]
+	fmt.Printf("\n🔍 DEBUG: Starting extraction\n")
+	fmt.Printf("   Zip: %s\n", zipPath)
+	fmt.Printf("   Model: %s\n", model)
+
 	folderName := fmt.Sprintf("%s_%s_%s_%s_%s",
 		strings.ToLower(brand),
 		strings.ToLower(model),
@@ -20,63 +22,65 @@ func ExtractFirmwareToFolder(zipPath string, brand, model, version, androidVer, 
 		binaryBit,
 	)
 
-	// Get firmware directory
 	fwDir := getFirmwareDirectory()
 	extractDir := filepath.Join(fwDir, folderName)
 
-	// Create extraction folder
+	fmt.Printf("   Extract dir: %s\n", extractDir)
+
 	if err := os.MkdirAll(extractDir, 0755); err != nil {
 		return "", nil, fmt.Sprintf("Failed to create folder: %v", err)
 	}
 
-	// Resolve full zip path
-	fullZipPath := filepath.Join(fwDir, zipPath)
-
-	// Verify zip exists
-	if _, err := os.Stat(fullZipPath); os.IsNotExist(err) {
-		return "", nil, fmt.Sprintf("Zip file not found: %s", fullZipPath)
+	var fullPath string
+	if filepath.IsAbs(zipPath) {
+		fullPath = filepath.Clean(zipPath)
+	} else {
+		fullPath = filepath.Join(fwDir, zipPath)
 	}
 
-	// Open zip file
-	r, err := zip.OpenReader(fullZipPath)
+	fmt.Printf("   Full path: %s\n", fullPath)
+
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		return "", nil, fmt.Sprintf("File not found: %s", fullPath)
+	}
+
+	fmt.Println("   Opening zip...")
+	r, err := zip.OpenReader(fullPath)
 	if err != nil {
 		return "", nil, fmt.Sprintf("Failed to open zip: %v", err)
 	}
 	defer r.Close()
 
 	var extractedFiles []string
+	fileCount := 0
 
-	// Extract each file
+	fmt.Printf("   Extracting %d files...\n", len(r.File))
+
 	for _, f := range r.File {
-		// Skip directories
 		if f.FileInfo().IsDir() {
 			continue
 		}
 
-		// Create destination path
 		destPath := filepath.Join(extractDir, filepath.Base(f.Name))
 
-		// Extract file
 		if err := extractFile(f, destPath); err != nil {
 			return "", nil, fmt.Sprintf("Failed to extract %s: %v", f.Name, err)
 		}
 
 		extractedFiles = append(extractedFiles, destPath)
+		fileCount++
+
+		if fileCount%10 == 0 {
+			fmt.Printf("   Progress: %d/%d files\n", fileCount, len(r.File))
+		}
 	}
 
 	if len(extractedFiles) == 0 {
-		// Clean up empty folder
 		os.RemoveAll(extractDir)
 		return "", nil, "No files found in firmware zip"
 	}
 
-	// 🔑 Delete the zip file (only .zip files)
-	if strings.HasSuffix(strings.ToLower(zipPath), ".zip") {
-		if err := os.Remove(fullZipPath); err != nil {
-			// Log warning but don't fail - extraction succeeded
-			fmt.Printf("Warning: Failed to delete zip %s: %v\n", fullZipPath, err)
-		}
-	}
+	fmt.Printf("   ✅ Extracted %d files\n", len(extractedFiles))
 
 	return extractDir, extractedFiles, ""
 }
