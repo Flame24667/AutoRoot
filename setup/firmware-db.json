@@ -14,17 +14,98 @@
         ]
         },
         {
-            "brand": "Samsung",
-            "model": "SM-A736B",
-            "displayName": "Galaxy A73 5G",
-            "firmware": [
-                {
-                    "androidVersion": "14",
-                    "url": "https://drive.google.com/file/d/1RI0FbX1LU5Ml4rErFCns7Y9IAuSDBbgq/view?usp=sharing",
-                    "filename": "Samsung_SM-A736B_Android_14.zip",
-                    "size": "0.16 GB"
-                }
-            ]
+        "brand": "Samsung",
+        "model": "SM-A127F/SM-A127M",
+        "displayName": "A12",
+        "firmware": [
+            {
+            "androidVersion": "13",
+            "url": "https://drive.usercontent.google.com/download?id=1Dphi9gXs01TH4FH7r7OzVITLwNrbQSGH&export=download&authuser=0&confirm=t&uuid=58069d91-bdc3-48f1-90d5-4d203fe3d312&at=ALBwUgk7RGPgB5DdMXVEGFo8LkMi%3A1776741235435",
+            "filename": "Root Samsung A12 Android 13.zip",
+            "size": "0.09 GB"
+            }
+        ]
+        },
+        {
+        "brand": "Samsung",
+        "model": "SM-A047F/SM-A047M",
+        "displayName": "A04S",
+        "firmware": [
+            {
+            "androidVersion": "13",
+            "url": "https://drive.usercontent.google.com/download?id=16qWrKO2GLttErnp9gBElDt99yvwgl0KK&export=download&authuser=0&confirm=t&uuid=950b49f3-1d8b-47a6-ac60-00537aa56689&at=ALBwUgnb5OCnvznslCE0Bo24SA6R%3A1776741707176",
+            "filename": "Root Samsung A04S Android 13.zip",
+            "size": "0.07 GB"
+            }
+        ]
+        },
+        {
+        "brand": "Samsung",
+        "model": "SM-J600GT/SM-J600GF/SM-J600G/SM-J600F",
+        "displayName": "J6",
+        "firmware": [
+            {
+            "androidVersion": "9",
+            "url": "https://drive.usercontent.google.com/download?id=1uiWxNydm1TAw1N5hrxMtdZt_h8XsP4qp&export=download&authuser=0",
+            "filename": "Root Samsung J6 Android 9.zip",
+            "size": "0.01 GB"
+            }
+        ]
+        },
+        {
+        "brand": "Samsung",
+        "model": "SM-A045F/SM-A045M",
+        "displayName": "A04",
+        "firmware": [
+            {
+            "androidVersion": "13",
+            "url": "https://drive.usercontent.google.com/download?id=1KAUeNYHhKP09a_X5eFlTOwPXq9-q4FUI&export=download&authuser=0&confirm=t&uuid=d790f66e-33d2-4676-b2d6-928a6b425764&at=ALBwUgnyQliTkqBto01xbiNVikWs%3A1776742008003",
+            "filename": "Root Samsung A04 Android 13.zip",
+            "size": "0.09 GB"
+            }
+        ]
+        },
+        {
+        "brand": "Samsung",
+        "model": "SM-A205F/SM-205G/SM-A205FN",
+        "displayName": "A20",
+        "firmware": [
+            {
+            "androidVersion": "9",
+            "url": "https://drive.usercontent.google.com/download?id=1JDJ2lWvTIxs6j_e7Z_Stl_aSJHtxgrrA&export=download&authuser=0",
+            "filename": "Root Samsung A20 Android 9.zip",
+            "size": "0.012 GB"
+            }
+        ]
+        },
+        {
+        "brand": "Samsung",
+        "model": "A305F/A305FN/A305G/A305GN/A305GT",
+        "displayName": "A30",
+        "firmware": [
+            {
+            "androidVersion": "9",
+            "url": "https://drive.usercontent.google.com/download?id=1oFV905kDydSmIVdpa0PhfwHRdxKnmKlb&export=download&authuser=0",
+            "filename": "Root Samsung A30 Android 9.zip",
+            "size": "0.013 GB"
+            }
+        ]
+        },
+        {
+        "brand": "Samsung",
+        "model": "All Models",
+        "displayName": "GALAXY S9",
+        "firmware": [
+            {
+            "androidVersion": "9",
+            "url": "https://drive.usercontent.google.com/download?id=1Y9B6sYCANt1CrR7mMD3EJJXOz9u5sGv7&export=download&authuser=0",
+            "filename": "Root Samsung S9 Android 9.zip",
+            "size": "0.018 GB"
+            }
+        ]
         }
+        
     ]
+
+    
 }
