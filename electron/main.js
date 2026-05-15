@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -70,7 +70,7 @@ function createWindow() {
         webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        preload: path.join(__dirname, 'preload.js'),
+        preload: path.join(__dirname, 'frontend', 'preload.js'),
         webSecurity: false, // 🔑 Temporarily disabled to rule out CSP blocking file://
         allowRunningInsecureContent: true,
         },
@@ -84,6 +84,14 @@ function createWindow() {
         mainWindow.loadFile(target);
     }
 }
+
+ipcMain.handle('select-firmware-file', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'Firmware ZIP', extensions: ['zip'] }]
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
 
 ipcMain.handle('go:invoke', async (_e, action, payload) => {
     return new Promise((resolve, reject) => {

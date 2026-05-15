@@ -7,52 +7,71 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"encoding/json"
 )
 
-func handleDroppedFirmware(srcPath string) (map[string]interface{}, string) {
-	// Validate extension
-	if !strings.HasSuffix(strings.ToLower(srcPath), ".zip") {
+func handleDroppedFirmware(payload interface{}) (map[string]interface{}, string) {
+	// 🔑 Debug: Log exactly what Go receives
+	fmt.Printf("📥 Go received payload type: %T, value: %+v\n", payload, payload)
+
+	// Handle common bridge formats
+	var data map[string]interface{}
+	switch v := payload.(type) {
+	case map[string]interface{}:
+		data = v
+	case string:
+		// Some bridges send JSON strings
+		if err := json.Unmarshal([]byte(v), &data); err != nil {
+			return nil, fmt.Sprintf("Failed to parse payload JSON: %v", err)
+		}
+	default:
+		return nil, fmt.Sprintf("Invalid payload type: %T. Expected object or JSON string", payload)
+	}
+
+	filePath, ok := data["filePath"].(string)
+	if !ok || filePath == "" {
+		return nil, "Missing or empty 'filePath' in payload"
+	}
+
+	fmt.Printf("📂 Processing file: %s\n", filePath)
+
+	if !strings.HasSuffix(strings.ToLower(filePath), ".zip") {
 		return nil, "Only .zip files are allowed"
 	}
 
-	// Verify source exists
-	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
-		return nil, "Source file not found"
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil, fmt.Sprintf("File not found: %s", filePath)
 	}
 
 	fwDir := getFirmwareDirectory()
-	destPath := filepath.Join(fwDir, filepath.Base(srcPath))
+	destPath := filepath.Join(fwDir, filepath.Base(filePath))
 
-	// Handle duplicate names safely
 	if _, err := os.Stat(destPath); err == nil {
 		ext := filepath.Ext(destPath)
 		name := strings.TrimSuffix(filepath.Base(destPath), ext)
-		timestamp := time.Now().Format("20060102_150405")
-		destPath = filepath.Join(fwDir, fmt.Sprintf("%s_%s%s", name, timestamp, ext))
+		destPath = filepath.Join(fwDir, fmt.Sprintf("%s_%s%s", name, time.Now().Format("20060102_150405"), ext))
 	}
 
-	// Copy file (works cross-platform & across volumes)
-	srcFile, err := os.Open(srcPath)
+	srcFile, err := os.Open(filePath)
 	if err != nil {
-		return nil, fmt.Sprintf("Failed to open source: %v", err)
+		return nil, fmt.Sprintf("Failed to open: %v", err)
 	}
 	defer srcFile.Close()
 
 	destFile, err := os.Create(destPath)
 	if err != nil {
-		return nil, fmt.Sprintf("Failed to create destination: %v", err)
+		return nil, fmt.Sprintf("Failed to create: %v", err)
 	}
 	defer destFile.Close()
 
-	_, err = io.Copy(destFile, srcFile)
-	if err != nil {
-		return nil, fmt.Sprintf("Failed to copy file: %v", err)
+	if _, err := io.Copy(destFile, srcFile); err != nil {
+		return nil, fmt.Sprintf("Copy failed: %v", err)
 	}
 
 	return map[string]interface{}{
 		"success": true,
 		"path":    destPath,
-		"size":    formatBytes(destFile.Name()),
+		"size":    formatBytes(destPath),
 	}, ""
 }
 

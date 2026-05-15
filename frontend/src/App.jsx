@@ -22,6 +22,16 @@ function App() {
   const isRootingRef = useRef(false);
   const fileInputRef = useRef(null);
 
+  const safeGetFileName = (filePath) => {
+    try {
+      if (!filePath) return 'Unknown';
+      return filePath.split(/[\\/]/).pop();
+    } catch (e) {
+      console.error('getFileName error:', e);
+      return 'Error';
+    }
+  };
+
   // --- CONNECTION LOGIC ---
   const checkDeviceConnection = async () => {
     if (isRootingRef.current || rootState !== 'idle') {
@@ -115,54 +125,86 @@ function App() {
     setIsDragging(false);
   };
 
+  const handleFileSelect = async () => {
+    if (!window.electronAPI?.selectFirmware) {
+      alert('️ App config error: File picker bridge missing. Restart the app.');
+      return;
+    }
+
+    setDropMsg('📂 Opening file picker...');
+    try {
+      const filePath = await window.electronAPI.selectFirmware();
+      if (!filePath) {
+        setDropMsg('❌ Cancelled');
+        setTimeout(() => setDropMsg(''), 3000);
+        return;
+      }
+
+      setDropMsg('📦 Processing...');
+      const res = await window.goAPI.call('handleDroppedFirmware', { filePath });
+      
+      if (res?.success) {
+        setDropMsg('✅ Firmware added!');
+        setFirmwareStatus('available');
+      } else {
+        setDropMsg(`❌ ${res?.error || 'Failed'}`);
+      }
+    } catch (err) {
+      setDropMsg(`❌ ${err.message}`);
+    }
+    setTimeout(() => setDropMsg(''), 5000);
+  };
+
   const handleDrop = async (e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    setDropMsg('📦 Processing dropped files...');
-
-    const files = Array.from(e.dataTransfer.files);
-    const zips = files.filter(f => f.path?.endsWith('.zip'));
-
+    
+    const zips = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.zip'));
     if (zips.length === 0) {
-      setDropMsg('❌ Only .zip firmware files are supported.');
+      setDropMsg('❌ Only .zip files');
       setTimeout(() => setDropMsg(''), 3000);
       return;
     }
 
-    await processFirmwareFiles(zips);
-  };
-
-  const handleFileSelect = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    if (!file.path.endsWith('.zip')) {
-      alert('Please select a .zip firmware file');
-      return;
+    setDropMsg('📦 Processing...');
+    for (const f of zips) {
+      if (!f.path) {
+        console.warn('⚠️ Drag & drop blocked: file.path missing. Use "Select Firmware" button.');
+        continue;
+      }
+      try {
+        const res = await window.goAPI.call('handleDroppedFirmware', { filePath: f.path });
+        if (res?.success) setDropMsg('✅ Added!');
+      } catch (err) {
+        console.error('Drop error:', err);
+      }
     }
-    
-    await processFirmwareFiles([file]);
-    
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    setTimeout(() => setDropMsg(''), 5000);
   };
 
   const processFirmwareFiles = async (files) => {
     let successCount = 0;
+    let errors = [];
+
     for (const file of files) {
       try {
+        console.log('📂 Sending to backend:', file.path);
         const result = await window.goAPI.call('handleDroppedFirmware', { filePath: file.path });
-        if (result?.success) successCount++;
+        
+        if (result?.success) {
+          successCount++;
+        } else {
+          errors.push(result?.error || 'Backend returned failure');
+        }
       } catch (err) {
-        console.error('Processing failed:', err);
+        console.error('❌ File processing failed:', err);
+        errors.push(err.message || 'Unknown error');
       }
     }
 
     if (successCount > 0) {
-      setDropMsg(`✅ Added ${successCount} firmware file(s)!`);
+      setDropMsg(`✅ Successfully added ${successCount} file(s)! Checking firmware...`);
       
       // Force refresh firmware status
       if (device) {
@@ -173,17 +215,22 @@ function App() {
               device: device.device 
             });
             setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
+            setDropMsg(`✅ Firmware updated & ready to root!`);
           } catch (err) {
             setFirmwareStatus('available');
+            setDropMsg(`✅ File added successfully!`);
           }
-        }, 500);
+        }, 600);
       } else {
         setFirmwareStatus('available');
+        setDropMsg(`✅ File added successfully!`);
       }
     } else {
-      setDropMsg('❌ Failed to process files.');
+      setDropMsg(`❌ Failed to add files: ${errors.join(', ')}`);
     }
-    setTimeout(() => setDropMsg(''), 4000);
+
+    // Clear message after 5 seconds
+    setTimeout(() => setDropMsg(''), 5000);
   };
 
   const getFileName = (filePath) => {
@@ -406,6 +453,10 @@ function App() {
         0%, 100% { transform: scale(1); }
         50% { transform: scale(1.02); }
       }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translate(-50%, 10px); }
+        to { opacity: 1; transform: translate(-50%, 0); }
+      }
     `;
     document.head.appendChild(styleSheet);
     return () => { document.head.removeChild(styleSheet); };
@@ -576,19 +627,12 @@ function App() {
                     border: '2px dashed #475569'
                   }}>
                     <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '1rem' }}>
-                      📁 No firmware found for this device
+                      📁 No firmware found for this device. Download the file and rename it to {device.brand}_{device.model}_{device.buildVersion}_{device.androidVersion}_{device.binaryBit}.zip
                     </p>
                     
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".zip"
-                      onChange={handleFileSelect}
-                      style={{ display: 'none' }}
-                    />
-                    
+                    {/* 🔑 NATIVE DIALOG BUTTON */}
                     <button 
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={handleFileSelect}
                       style={{
                         ...styles.primaryBtn,
                         background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
@@ -599,7 +643,7 @@ function App() {
                     </button>
                     
                     <p style={{ color: '#64748b', fontSize: '0.8rem', margin: '0.5rem 0 0 0' }}>
-                      or drag & drop .zip file anywhere
+                      Drag & drop may be blocked by Electron security
                     </p>
                   </div>
                 )}
@@ -710,11 +754,22 @@ function App() {
       {/* Drop Message Toast */}
       {dropMsg && (
         <div style={{
-          position: 'fixed', bottom: '2rem', left: '50%', transform: 'translateX(-50%)',
-          padding: '0.75rem 1.5rem', background: '#1e293b', borderRadius: '10px',
-          color: dropMsg.includes('✅') ? '#22c55e' : '#ef4444',
-          border: '1px solid #334155', fontSize: '0.9rem', zIndex: 1001,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+          position: 'fixed', 
+          bottom: '2rem', 
+          left: '50%', 
+          transform: 'translateX(-50%)',
+          padding: '1rem 1.5rem', 
+          background: dropMsg.includes('✅') ? '#065f46' : dropMsg.includes('') ? '#7f1d1d' : '#1e293b',
+          color: '#f8fafc',
+          borderRadius: '12px',
+          border: `1px solid ${dropMsg.includes('✅') ? '#22c55e' : dropMsg.includes('❌') ? '#ef4444' : '#475569'}`,
+          fontSize: '0.95rem', 
+          fontWeight: '500',
+          zIndex: 9999,
+          boxShadow: '0 8px 30px rgba(0,0,0,0.4)',
+          textAlign: 'center',
+          minWidth: '280px',
+          animation: 'fadeIn 0.3s ease'
         }}>
           {dropMsg}
         </div>
