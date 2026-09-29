@@ -11,16 +11,23 @@ import (
 )
 
 type FirmwareInfo struct {
-	Brand          string `json:"brand"`
-	Model          string `json:"model"`
-	DisplayName    string `json:"displayName"`
-	Codename       string `json:"codename"`
-	Region         string `json:"region"`
-	Version        string `json:"version"`
-	AndroidVersion string `json:"androidVersion"`
-	URL            string `json:"url"`
-	Filename       string `json:"filename"`
-	Size           string `json:"size"`
+	Brand              string   `json:"brand"`
+	Model              string   `json:"model"`
+	DisplayName        string   `json:"displayName"`
+	SourceType         string   `json:"sourceType"`
+	Region             string   `json:"region"`
+	PDA                string   `json:"pda"`
+	CSC                string   `json:"csc"`
+	CP                 string   `json:"cp"`
+	AndroidVersion     string   `json:"androidVersion"`
+	BootloaderBinary   string   `json:"bootloaderBinary"`
+	ExpectedSizeBytes  int64    `json:"expectedSizeBytes"`
+	ExpectedSizeHuman  string   `json:"expectedSizeHuman"`
+	MD5                string   `json:"md5"`
+	SHA256             string   `json:"sha256"`
+	RequiredSlots      []string `json:"requiredSlots"`
+	VerificationStatus string   `json:"verificationStatus"`
+	Notes              []string `json:"notes,omitempty"`
 }
 
 // downloadFirmware downloads firmware from URL to firmware directory
@@ -112,11 +119,12 @@ func listAvailableFirmware(payload interface{}) (interface{}, string) {
 		return nil, "Model required"
 	}
 
-	// Load firmware database
+	// Load firmware database. The schema changed from "a list of download URLs"
+	// to "metadata describing what a correct package looks like", so an entry
+	// without a trusted source is reported but never auto-downloaded.
 	dbPath := filepath.Join("setup", "firmware-db.json")
 	dbData, err := os.ReadFile(dbPath)
 	if err != nil {
-		// Try alternative path
 		dbPath = filepath.Join("..", "setup", "firmware-db.json")
 		dbData, err = os.ReadFile(dbPath)
 		if err != nil {
@@ -129,14 +137,23 @@ func listAvailableFirmware(payload interface{}) (interface{}, string) {
 			Brand       string `json:"brand"`
 			Model       string `json:"model"`
 			DisplayName string `json:"displayName"`
-			Codename    string `json:"codename"`
+			Device      string `json:"device"`
 			Firmware    []struct {
-				Region         string `json:"region"`
-				Version        string `json:"version"`
-				AndroidVersion string `json:"androidVersion"`
-				URL            string `json:"url"`
-				Filename       string `json:"filename"`
-				Size           string `json:"size"`
+				SourceType         string   `json:"sourceType"`
+				Region             string   `json:"region"`
+				PDA                string   `json:"pda"`
+				CSC                string   `json:"csc"`
+				CP                 string   `json:"cp"`
+				AndroidVersion     string   `json:"androidVersion"`
+				SecurityPatch      string   `json:"securityPatch"`
+				BootloaderBinary   string   `json:"bootloaderBinary"`
+				ExpectedSizeBytes  int64    `json:"expectedSizeBytes"`
+				ExpectedSizeHuman  string   `json:"expectedSizeHuman"`
+				MD5                string   `json:"md5"`
+				SHA256             string   `json:"sha256"`
+				RequiredSlots      []string `json:"requiredSlots"`
+				VerificationStatus string   `json:"verificationStatus"`
+				Notes              []string `json:"notes"`
 			} `json:"firmware"`
 		} `json:"devices"`
 	}
@@ -145,32 +162,42 @@ func listAvailableFirmware(payload interface{}) (interface{}, string) {
 		return nil, fmt.Sprintf("Invalid firmware database: %v", err)
 	}
 
-	// Find matching device
+	// Find matching device by exact model code, then by the same prefix rule
+	// used for marketing names.
+	wantCode := modelCodeOf(model)
 	var available []FirmwareInfo
 	for _, device := range db.Devices {
-		if strings.Contains(strings.ToUpper(device.Model), strings.ToUpper(model)) ||
-			strings.Contains(strings.ToUpper(model), strings.ToUpper(device.Model)) {
-			for _, fw := range device.Firmware {
-				available = append(available, FirmwareInfo{
-					Brand:          device.Brand,
-					Model:          device.Model,
-					DisplayName:    device.DisplayName,
-					Codename:       device.Codename,
-					Region:         fw.Region,
-					Version:        fw.Version,
-					AndroidVersion: fw.AndroidVersion,
-					URL:            fw.URL,
-					Filename:       fw.Filename,
-					Size:           fw.Size,
-				})
-			}
+		deviceCode := modelCodeOf(device.Model)
+		if deviceCode == "" || (deviceCode != wantCode && !strings.HasPrefix(wantCode, deviceCode)) {
+			continue
+		}
+		for _, fw := range device.Firmware {
+			available = append(available, FirmwareInfo{
+				Brand:              device.Brand,
+				Model:              device.Model,
+				DisplayName:        device.DisplayName,
+				SourceType:         fw.SourceType,
+				Region:             fw.Region,
+				PDA:                fw.PDA,
+				CSC:                fw.CSC,
+				CP:                 fw.CP,
+				AndroidVersion:     fw.AndroidVersion,
+				BootloaderBinary:   fw.BootloaderBinary,
+				ExpectedSizeBytes:  fw.ExpectedSizeBytes,
+				ExpectedSizeHuman:  fw.ExpectedSizeHuman,
+				MD5:                fw.MD5,
+				SHA256:             fw.SHA256,
+				RequiredSlots:      fw.RequiredSlots,
+				VerificationStatus: fw.VerificationStatus,
+				Notes:              fw.Notes,
+			})
 		}
 	}
 
 	if len(available) == 0 {
 		return map[string]interface{}{
 			"available": false,
-			"message":   "No firmware found for this device",
+			"message":   "No firmware metadata found for " + wantCode,
 		}, ""
 	}
 
@@ -178,30 +205,13 @@ func listAvailableFirmware(payload interface{}) (interface{}, string) {
 		"available": true,
 		"firmware":  available,
 		"count":     len(available),
+		"message":   "Metadata only. A package still has to be fetched and fully validated before it can be flashed.",
 	}, ""
 }
 
-// getFirmwareDirectory returns the firmware directory path
+// getFirmwareDirectory returns the firmware root. Large packages must never
+// land on the system drive, so this resolves to the D: volume (or an explicit
+// override) rather than %APPDATA%, which sits on the nearly-full C:.
 func getFirmwareDirectory() string {
-	exePath, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	exeDir := filepath.Dir(exePath)
-
-	// Check AppData first
-	if appData := os.Getenv("APPDATA"); appData != "" {
-		fwDir := filepath.Join(appData, "AutoRoot", "firmware")
-		if _, err := os.Stat(fwDir); err == nil {
-			return fwDir
-		}
-		// Create it
-		os.MkdirAll(fwDir, 0755)
-		return fwDir
-	}
-
-	// Fallback to local
-	localFw := filepath.Join(exeDir, "firmware")
-	os.MkdirAll(localFw, 0755)
-	return localFw
+	return resolveFirmwareRoot()
 }

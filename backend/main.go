@@ -201,6 +201,38 @@ func main() {
 			case "getLatestMagiskPatchedFile":
 				deviceID := req.Payload.(map[string]interface{})["deviceID"].(string)
 				resp.Result, resp.Error = getLatestMagiskPatchedFile(deviceID)
+
+			// Hardened workflow actions.
+			case "startSession":
+				resp.Result, resp.Error = startSession(req.Payload)
+			case "adoptFirmware":
+				resp.Result, resp.Error = adoptFirmware(req.Payload)
+			case "fetchFirmware":
+				resp.Result, resp.Error = fetchFirmware(req.Payload)
+			case "recordPatchedAP":
+				resp.Result, resp.Error = recordPatchedAP(req.Payload)
+			case "preflight":
+				resp.Result, resp.Error = preflight(req.Payload)
+			case "dryRun":
+				resp.Result, resp.Error = dryRun(req.Payload)
+			case "engineStatus":
+				resp.Result, resp.Error = engineStatusAction(req.Payload)
+			case "approveFlash":
+				resp.Result, resp.Error = approveFlash(req.Payload)
+			case "flashPlan":
+				resp.Result, resp.Error = flashPlan(req.Payload)
+			case "verifyRoot":
+				payload := req.Payload.(map[string]interface{})
+				deviceID, _ := payload["deviceID"].(string)
+				resp.Result, resp.Error = verifyRoot(deviceID)
+			case "sessionState":
+				if s := LoadSession(); s != nil {
+					resp.Result = map[string]interface{}{"active": true, "session": s}
+				} else {
+					resp.Result = map[string]interface{}{"active": false}
+				}
+			case "resetSession":
+				resp.Result = map[string]interface{}{"cleared": ClearSession() == nil}
 			default:
 				resp.Error = "unknown action"
 			}

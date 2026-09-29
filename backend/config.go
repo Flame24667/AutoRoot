@@ -97,9 +97,16 @@ func appDir() string {
 	return filepath.Dir(exePath)
 }
 
+// stateDirOverride redirects the state directory, used by tests so a run
+// never touches the real session file. Empty in production.
+var stateDirOverride string
+
 // writableStateDir holds the state machine, logs and caches. It is intentionally
 // small, so it may live on the system drive even when firmware cannot.
 func writableStateDir() string {
+	if stateDirOverride != "" {
+		return stateDirOverride
+	}
 	if dir := appDir(); dir != "" {
 		candidate := filepath.Join(dir, stateDirName)
 		if ensureDir(candidate) {
@@ -124,11 +131,25 @@ func cacheDir() string {
 	return dir
 }
 
+// toolsDir locates the flashing engine. The binary lives in bin/ during
+// development and in resources/bin/ once packaged, while the engine is kept
+// beside the project, so the candidates are walked upward from the executable
+// rather than assuming one layout.
 func toolsDir() string {
 	if dir := appDir(); dir != "" {
-		candidate := filepath.Join(dir, defaultToolsRoot)
-		if ensureDir(candidate) {
-			return candidate
+		cur := dir
+		// Walk up a few levels so both bin\ and resources\bin\ resolve to the
+		// project's tools folder.
+		for i := 0; i < 4 && cur != ""; i++ {
+			candidate := filepath.Join(cur, defaultToolsRoot)
+			if ensureDir(candidate) {
+				return candidate
+			}
+			parent := filepath.Dir(cur)
+			if parent == cur {
+				break
+			}
+			cur = parent
 		}
 	}
 	dir := filepath.Join(writableStateDir(), defaultToolsRoot)

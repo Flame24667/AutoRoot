@@ -9,13 +9,20 @@ const pending = new Map();
 let reqId = 0;
 const isDev = !app.isPackaged;
 
+// The backend is the only thing that touches the phone. This whitelist is the
+// trust boundary: an action that is not listed here cannot be invoked from the
+// renderer, even if the UI is compromised.
+//
+// Note what is deliberately absent: there is no "flash" action. Flashing
+// requires building a plan, which the backend refuses without an explicit
+// approval recorded in the persisted session. Keeping the destructive step out
+// of the IPC surface means a stray click cannot start it.
 const allowedActions = new Set([
     'ping',
     'getDeviceInfo',
     'checkFirmware',
     'rebootToDownloadMode',
     'checkOdinAvailability',
-    'flashWithOdin',
     'verifyRootAfterFlash',
     'extractFirmwareToFolder',
     'handleDroppedFirmware',
@@ -23,6 +30,20 @@ const allowedActions = new Set([
     'ensureMagiskInstalled',
     'keepDeviceAwake',
     'getLatestMagiskPatchedFile',
+    'listAvailableFirmware',
+    // Hardened workflow
+    'startSession',
+    'adoptFirmware',
+    'fetchFirmware',
+    'recordPatchedAP',
+    'preflight',
+    'dryRun',
+    'engineStatus',
+    'approveFlash',
+    'flashPlan',
+    'verifyRoot',
+    'sessionState',
+    'resetSession',
 ]);
 
 function getGoPath() {

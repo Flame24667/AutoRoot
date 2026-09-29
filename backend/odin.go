@@ -187,22 +187,13 @@ func verifyRootAfterFlash(deviceID string) (bool, string) {
 }
 
 func getOdinPath() string {
-	exePath, _ := os.Executable()
-	exeDir := filepath.Dir(exePath)
-
-	// Try multiple locations
-	paths := []string{
-		filepath.Join(exeDir, "odin", "Odin3.exe"),
-		filepath.Join(exeDir, "resources", "odin", "Odin3.exe"),
-		filepath.Join("odin", "Odin3.exe"),
-	}
-
-	for _, path := range paths {
-		if isWindowsExecutable(path) {
-			return path
-		}
-	}
-
+	// Odin has no supported command line, and the archive's Odin3.exe is a
+	// Git LFS pointer rather than a program. AutoRoot therefore does not use
+	// Odin at all: flashing is handled by samloader-rs, whose CLI is documented
+	// and version-pinned (see samloader.go).
+	//
+	// This function is retained only so existing callers fail loudly instead of
+	// silently invoking a GUI tool that cannot be automated.
 	return ""
 }
 
