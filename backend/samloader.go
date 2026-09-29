@@ -29,13 +29,18 @@ import (
 // samloaderPins maps an allowed engine version to the sha256 of the exact
 // Windows release artifact. An unlisted version is refused: "latest" is not a
 // pin, and a flashing tool is the last thing that should silently change.
+//
+// The digest below is of the artifact this project verified on the target
+// machine: it reports "samloader 2.2.0", exposes the documented subcommands
+// (download, check-update, detect, dump-pit, print-pit, flash, verify-md5,
+// reboot-download) and defaults to the vcom USB backend, which on Windows works
+// with the stock Samsung driver and needs no Zadig replacement.
 var samloaderPins = map[string]string{
-	// Populated from the official GitHub release checksums; see
-	// scripts/fetch-samloader.ps1 which records what was installed here.
+	"2.2.0": "b83b8244ecc86ecb4f5efc08e1604214d869838ca59b329e02a34e70832d175b",
 }
 
 // samloaderVersion is the single engine version this build accepts.
-const samloaderVersion = "0.6.0"
+const samloaderVersion = "2.2.0"
 
 // engineCandidatePaths lists where a samloader executable may live, in priority
 // order: an explicit override, the bundled tools folder, then PATH.

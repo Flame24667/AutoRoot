@@ -3,6 +3,7 @@ bin/
 release/
 setup/firmware/
 work-cache/
+tools/
 *.log
 src/
 *.exe~

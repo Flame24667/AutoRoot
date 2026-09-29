@@ -19,6 +19,7 @@ type FirmwareInfo struct {
 	PDA                string   `json:"pda"`
 	CSC                string   `json:"csc"`
 	CP                 string   `json:"cp"`
+	FUSVersionString   string   `json:"fusVersionString"`
 	AndroidVersion     string   `json:"androidVersion"`
 	BootloaderBinary   string   `json:"bootloaderBinary"`
 	ExpectedSizeBytes  int64    `json:"expectedSizeBytes"`
@@ -144,6 +145,7 @@ func listAvailableFirmware(payload interface{}) (interface{}, string) {
 				PDA                string   `json:"pda"`
 				CSC                string   `json:"csc"`
 				CP                 string   `json:"cp"`
+				FUSVersionString   string   `json:"fusVersionString"`
 				AndroidVersion     string   `json:"androidVersion"`
 				SecurityPatch      string   `json:"securityPatch"`
 				BootloaderBinary   string   `json:"bootloaderBinary"`
@@ -181,6 +183,7 @@ func listAvailableFirmware(payload interface{}) (interface{}, string) {
 				PDA:                fw.PDA,
 				CSC:                fw.CSC,
 				CP:                 fw.CP,
+				FUSVersionString:   fw.FUSVersionString,
 				AndroidVersion:     fw.AndroidVersion,
 				BootloaderBinary:   fw.BootloaderBinary,
 				ExpectedSizeBytes:  fw.ExpectedSizeBytes,

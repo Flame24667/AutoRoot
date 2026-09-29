@@ -64,25 +64,35 @@ Set `AUTOROOT_FIRMWARE_ROOT` to override the firmware root.
 
 ## Installing the flashing engine
 
-AutoRoot refuses to run an unverified flashing engine. Install samloader-rs with
-its official SHA-256:
+The engine is already installed and pinned: `tools\samloader.exe`, version 2.2.0,
+SHA-256 `b83b8244ecc86ecb4f5efc08e1604214d869838ca59b329e02a34e70832d175b`,
+recorded in `backend/samloader.go`. AutoRoot refuses to run any other build.
+
+To reinstall, or to move to a newer release:
 
 ```powershell
-.\scripts\fetch-samloader.ps1 -Version 0.6.0 -ExpectedSHA256 <sha256-from-official-release>
+.\scripts\fetch-samloader.ps1 -Version 2.2.0 -ExpectedSHA256 <sha256-from-official-release>
 ```
 
-Then record the digest in `backend/samloader.go`:
-
-```go
-const samloaderVersion = "0.6.0"
-var samloaderPins = map[string]string{ "0.6.0": "<sha256>" }
-```
-
-Review the pin before installing:
+Review a pin before installing anything:
 
 ```powershell
-.\scripts\fetch-samloader.ps1 -PinOnly -Version 0.6.0 -ExpectedSHA256 <sha256>
+.\scripts\fetch-samloader.ps1 -PinOnly -Version 2.2.0 -ExpectedSHA256 <sha256>
 ```
+
+### What has been verified about the engine
+
+- `samloader --version` reports 2.2.0.
+- The documented subcommands are present: `download`, `check-update`, `detect`,
+  `dump-pit`, `print-pit`, `flash`, `verify-md5`, `reboot-download`.
+- The default USB backend is `vcom`, which on Windows works with the stock
+  Samsung driver and needs no Zadig driver replacement.
+- `check-update -m SM-A065F -r XID` reaches Samsung FUS successfully and returns
+  real version data, so the earlier SChannel failure does not affect this build.
+
+`samloader detect` correctly reports "Failed to detect compatible download-mode
+device" while the phone is running Android. That is the expected answer, not a
+driver problem.
 
 ## The workflow
 
@@ -136,12 +146,18 @@ approval gating) and the flash planner (CSC mode, engine pinning).
 
 ## Blockers
 
-- **Firmware is not downloaded.** `D:\Data Kelola IT\Firmware\SM-A065F` is
-  empty. A 5.81 GB download has not been attempted.
-- **The engine is not installed and not pinned.** `samloaderPins` is empty, so
-  AutoRoot refuses to run the engine until a digest is recorded.
-- **Download Mode detection is unverified on this device.** The `samloader detect`
-  path has not been exercised against an SM-A065F, because doing so requires
-  rebooting the phone into Download Mode.
-- **Flashing is not wired to the UI.** The plan is built and displayed, but the
-  execution step is intentionally absent until the blockers above clear.
+- **Firmware is not downloaded.** `D:\Data Kelola IT\Firmware\SM-A065F` is empty.
+  A 5.81 GB download has not been attempted, per instruction. FUS confirms the
+  build exists: `A065FXXS4AYE2/A065FOLE4AYE2/A065FXXS4AYE1/A065FXXS4AYE2`, with
+  `A065FXXS9CZA1` as the newest revision.
+- **Magisk is not on the phone.** `com.topjohnwu.magisk` is absent, so the AP
+  cannot be patched yet.
+- **The AP has not been patched.** This needs the Magisk UI on the device and
+  remains manual by nature.
+- **Download Mode detection is unverified on this device.** `samloader detect`
+  has not been exercised against an SM-A065F in Download Mode, because that
+  requires rebooting the phone. Until then, the device's Download Mode reachability
+  is an assumption, not a verified fact.
+- **Flashing is not wired to the UI.** `flashPlan` builds and displays the exact
+  `samloader flash` command, but the execution step is deliberately absent. There
+  is no `flash` action in the Electron IPC whitelist at all.

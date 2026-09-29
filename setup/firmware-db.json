@@ -25,6 +25,7 @@
                     "pda": "A065FXXS4AYE2",
                     "csc": "A065FOLE4AYE2",
                     "cp": "A065FXXS4AYE1",
+                    "fusVersionString": "A065FXXS4AYE2/A065FOLE4AYE2/A065FXXS4AYE1/A065FXXS4AYE2",
                     "androidVersion": "14",
                     "securityPatch": "2025-04-01",
                     "bootloaderBinary": "4",
@@ -35,10 +36,13 @@
                     "sha256": "",
                     "verificationStatus": "metadata-known-binary-unverified",
                     "notes": [
-                        "The installed build is A065FXXS4AYE2 with CSC A065FOLE4AYE2.",
+                        "This is the build currently installed on the phone, so it is the",
+                        "known-good target and the newest revision is A065FXXS9CZA1.",
                         "No trusted package digest has been recorded yet, so the internal",
                         ".tar.md5 checks are the primary integrity gate and a missing",
-                        "package digest is reported as a warning, not a silent pass."
+                        "package digest is reported as a warning, not a silent pass.",
+                        "Never select a revision below binary 4: Samsung anti-rollback",
+                        "rejects the downgrade and the package would not install."
                     ]
                 }
             ]

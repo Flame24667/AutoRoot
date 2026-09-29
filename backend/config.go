@@ -132,17 +132,27 @@ func cacheDir() string {
 }
 
 // toolsDir locates the flashing engine. The binary lives in bin/ during
-// development and in resources/bin/ once packaged, while the engine is kept
-// beside the project, so the candidates are walked upward from the executable
-// rather than assuming one layout.
+// development and in resources/bin/ once packaged, while the engine itself is
+// kept in the project's tools folder, so the search walks upward from the
+// executable.
+//
+// Only pre-existing folders are accepted, otherwise this function would create
+// an empty bin\tools on the first call and stop the walk before it ever reached
+// the real one.
 func toolsDir() string {
+	if override := strings.TrimSpace(os.Getenv("AUTOROOT_TOOLS_DIR")); override != "" {
+		if ensureDir(override) {
+			return override
+		}
+	}
+
 	if dir := appDir(); dir != "" {
 		cur := dir
 		// Walk up a few levels so both bin\ and resources\bin\ resolve to the
 		// project's tools folder.
 		for i := 0; i < 4 && cur != ""; i++ {
 			candidate := filepath.Join(cur, defaultToolsRoot)
-			if ensureDir(candidate) {
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 				return candidate
 			}
 			parent := filepath.Dir(cur)
@@ -152,9 +162,19 @@ func toolsDir() string {
 			cur = parent
 		}
 	}
-	dir := filepath.Join(writableStateDir(), defaultToolsRoot)
-	ensureDir(dir)
-	return dir
+
+	// Nothing existing: create the folder beside the executable so the operator
+	// has an obvious place to drop the engine.
+	fallback := filepath.Join(appDirOrDot(), defaultToolsRoot)
+	ensureDir(fallback)
+	return fallback
+}
+
+func appDirOrDot() string {
+	if dir := appDir(); dir != "" {
+		return dir
+	}
+	return "."
 }
 
 func ensureDir(path string) bool {
