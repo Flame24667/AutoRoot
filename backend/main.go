@@ -24,6 +24,11 @@ type Response struct {
 }
 
 func main() {
+	// Offline CLI mode, used for firmware validation without the UI.
+	if len(os.Args) > 1 && os.Args[1] == "validate" {
+		os.Exit(runValidateCLI(os.Args[2:]))
+	}
+
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		var req Request
