@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -140,6 +140,20 @@ function createWindow() {
         mainWindow.loadFile(target);
     }
 }
+
+// Selecting a firmware package is a deliberate act, so it goes through a
+// native dialog filtered to .zip rather than a text field. The path is returned
+// to the renderer but not trusted: the backend validates model, sales code,
+// anti-rollback, ZIP integrity and every internal MD5 before it can be used.
+ipcMain.handle('dialog:pickFirmware', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select a Samsung firmware package',
+        properties: ['openFile'],
+        filters: [{ name: 'Firmware package', extensions: ['zip'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+});
 
 ipcMain.handle('go:invoke', async (_e, action, payload) => {
     if (!allowedActions.has(action)) {
