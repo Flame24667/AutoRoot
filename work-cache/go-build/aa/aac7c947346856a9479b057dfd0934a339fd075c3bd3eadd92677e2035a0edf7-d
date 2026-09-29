@@ -1,0 +1,20 @@
+# test log
+getenv GOTMPDIR
+open C:\Users\USER\AppData\Local\Temp\TestIsWindowsExecutableRejectsSmallPointerFile1747614274\001\Odin3.exe
+stat C:\Users\USER\AppData\Local\Temp\TestIsWindowsExecutableRejectsSmallPointerFile1747614274\001\Odin3.exe
+open C:\Users\USER\AppData\Local\Temp
+getenv GOTMPDIR
+open C:\Users\USER\AppData\Local\Temp\TestIsWindowsExecutableAcceptsLargePEHeader744127303\001\tool.exe
+stat C:\Users\USER\AppData\Local\Temp\TestIsWindowsExecutableAcceptsLargePEHeader744127303\001\tool.exe
+open C:\Users\USER\AppData\Local\Temp\TestIsWindowsExecutableAcceptsLargePEHeader744127303\001\tool.exe
+open C:\Users\USER\AppData\Local\Temp
+getenv GOTMPDIR
+open C:\Users\USER\AppData\Local\Temp\TestFlashWithOdinRejectsNonHomeCSC1450472628\001\AP_firmware.tar.md5
+open C:\Users\USER\AppData\Local\Temp\TestFlashWithOdinRejectsNonHomeCSC1450472628\001\BL_firmware.tar.md5
+open C:\Users\USER\AppData\Local\Temp\TestFlashWithOdinRejectsNonHomeCSC1450472628\001\CP_firmware.tar.md5
+open C:\Users\USER\AppData\Local\Temp\TestFlashWithOdinRejectsNonHomeCSC1450472628\001\CSC_firmware.tar.md5
+stat C:\Users\USER\AppData\Local\Temp\TestFlashWithOdinRejectsNonHomeCSC1450472628\001\AP_firmware.tar.md5
+stat C:\Users\USER\AppData\Local\Temp\TestFlashWithOdinRejectsNonHomeCSC1450472628\001\BL_firmware.tar.md5
+stat C:\Users\USER\AppData\Local\Temp\TestFlashWithOdinRejectsNonHomeCSC1450472628\001\CP_firmware.tar.md5
+stat C:\Users\USER\AppData\Local\Temp\TestFlashWithOdinRejectsNonHomeCSC1450472628\001\CSC_firmware.tar.md5
+open C:\Users\USER\AppData\Local\Temp

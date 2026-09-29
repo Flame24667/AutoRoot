@@ -1,0 +1,21 @@
+{
+  "appId": "com.rootautomation.app",
+  "productName": "Root Automation",
+  "directories": {
+    "buildResources": "build"
+  },
+  "files": [
+    "**/*",
+    "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+    "!**/node_modules/.bin",
+    "!**/*.map"
+  ],
+  "extraResources": [
+    { "from": "../assets", "to": "assets" },
+    { "from": "../db", "to": "db" },
+    { "from": "../backend", "to": "backend" }
+  ],
+  "win": {
+    "target": ["portable"]
+  }
+}

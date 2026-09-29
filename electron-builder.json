@@ -1,0 +1,39 @@
+{
+    "appId": "com.autoroot.desktop",
+    "productName": "AutoRoot",
+    "files": [
+        "electron/**/*",
+        "frontend/dist/**/*"
+    ],
+    "extraResources": [
+        "bin/*",
+        "odin/**/*",
+        {
+            "from": "Magisk-v30.7.apk",
+            "to": "Magisk-v30.7.apk"
+        },
+        "setup/firmware-db.json",
+        "scripts/firmware-installer.ps1",
+        {
+        "from": "scripts/firmware-installer.ps1",
+        "to": "firmware-installer.ps1"
+        }
+    ],
+    "directories": {
+        "output": "release"
+    },
+    "win": {
+        "target": [{ "target": "nsis", "arch": ["x64"] }],
+        "forceCodeSigning": false,
+        "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+        "oneClick": false,
+        "allowToChangeInstallationDirectory": true,
+        "createDesktopShortcut": true,
+        "shortcutName": "AutoRoot",
+        "runAfterFinish": true,
+        "include": "installer.nsh"
+    },
+    "publish": null
+}
