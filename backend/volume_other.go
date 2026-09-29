@@ -1,0 +1,13 @@
+//go:build !windows
+
+package main
+
+import "syscall"
+
+func volumeFreeBytes(path string) int64 {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0
+	}
+	return int64(stat.Bavail) * int64(stat.Bsize)
+}

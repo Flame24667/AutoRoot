@@ -20,6 +20,8 @@ var deviceNames = map[string]string{
 
 	// Samsung Galaxy A
 	"SM-A045F": "Galaxy A04",
+	"SM-A055F": "Galaxy A05s",
+	"SM-A065F": "Galaxy A06",
 	"SM-A125F": "Galaxy A12",
 	"SM-A135F": "Galaxy A13",
 	"SM-A225F": "Galaxy A22 5G",
