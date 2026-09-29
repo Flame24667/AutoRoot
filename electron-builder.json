@@ -7,7 +7,7 @@
     ],
     "extraResources": [
         "bin/*",
-        "odin/**/*",
+        "Tools/odin/**/*",
         "setup/firmware-db.json",
         "scripts/firmware-installer.ps1",
         "scripts/gdown.exe",
