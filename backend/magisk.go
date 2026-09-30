@@ -24,13 +24,13 @@ func ensureMagiskInstalled(deviceID string) (string, string) {
 	}
 	apkPath := magiskPaths[0]
 
-	// Push & install
-	runAdb("-s", deviceID, "push", apkPath, "/data/local/tmp/Magisk.apk")
-	_, stderr, err := runAdb("-s", deviceID, "install", "-r", "/data/local/tmp/Magisk.apk")
-	runAdb("-s", deviceID, "shell", "rm", "/data/local/tmp/Magisk.apk")
+	_, stderr, err := runAdb("-s", deviceID, "install", "-r", apkPath)
 
 	if err != nil {
-		return "", fmt.Sprintf("Install failed: %s. Enable 'Install via USB' in Developer Options.", stderr)
+		if stderr == "" {
+			stderr = err.Error()
+		}
+		return "", fmt.Sprintf("Install failed: %s", stderr)
 	}
 
 	return "Magisk installed successfully", ""
