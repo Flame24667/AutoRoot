@@ -178,6 +178,32 @@ func getOdinPath() string {
 	return ""
 }
 
+// LaunchOdinGUI opens the Odin GUI. Odin3.exe has no supported CLI, so the
+// flash itself stays manual: the user loads the patched AP and clicks Start.
+func LaunchOdinGUI(apFile string) (string, string) {
+	odinPath := getOdinPath()
+	if odinPath == "" {
+		return "", "Odin executable not found in resources/odin/"
+	}
+
+	// Reveal the patched AP in Explorer so the user can pick it in Odin.
+	if apFile != "" {
+		if _, err := os.Stat(apFile); err == nil {
+			exec.Command("explorer", "/select,"+apFile).Start()
+		}
+	}
+
+	cmd := exec.Command(odinPath)
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Sprintf("Failed to launch Odin: %v", err)
+	}
+
+	if apFile != "" {
+		return fmt.Sprintf("Odin opened. In Odin: AP → select %s, then click Start.", filepath.Base(apFile)), ""
+	}
+	return "Odin opened. Load the patched AP into the AP slot, then click Start.", ""
+}
+
 func odinFlash(deviceID, apFile, blFile, cpFile, cscFile string) (string, string) {
 	// On Windows, you'd call Odin3.exe via CLI
 	// For now, this is a placeholder - you'll need the actual Odin CLI tool

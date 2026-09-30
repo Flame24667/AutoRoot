@@ -109,11 +109,20 @@ func main() {
 			resp.Result, resp.Error = downloadFirmware(req.Payload)
 		case "listAvailableFirmware":
 			resp.Result, resp.Error = listAvailableFirmware(req.Payload)
+		case "launchOdinGUI":
+			payload, _ := req.Payload.(map[string]interface{})
+			apFile, _ := payload["apFile"].(string)
+			resp.Result, resp.Error = LaunchOdinGUI(apFile)
 		case "odinFlash":
 			payload := req.Payload.(map[string]interface{})
-			deviceID := payload["deviceID"].(string)
-			tarFile := payload["tarFile"].(string)
-			resp.Result, resp.Error = FlashWithOdin(deviceID, tarFile)
+			deviceID, _ := payload["deviceID"].(string)
+			apFile, _ := payload["apFile"].(string)
+			blFile, _ := payload["blFile"].(string)
+			cpFile, _ := payload["cpFile"].(string)
+			cscFile, _ := payload["cscFile"].(string)
+			resp.Result, resp.Error = flashWithOdin(deviceID, map[string]string{
+				"AP": apFile, "BL": blFile, "CP": cpFile, "CSC": cscFile,
+			})
 		case "extractFirmwareToFolder":
 			fmt.Println("📦 extractFirmwareToFolder called")
 			p := req.Payload.(map[string]interface{})

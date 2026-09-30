@@ -323,28 +323,49 @@ function App() {
       setRootLog(prev => prev + '\n👉 Press Volume UP on phone\n⏳ Waiting...\n');
       await new Promise(r => setTimeout(r, 15000));
       
-      setRootLog(prev => prev + '\n🔥 Flashing with Odin...\nDO NOT DISCONNECT!\n');
-      const odinRes = await window.goAPI.call('odinFlash', {
-        deviceID: device.serial,
-        apFile: patchedAp,
-        blFile: firmwareFiles.find(f=>f.includes('BL_')),
-        cpFile: firmwareFiles.find(f=>f.includes('CP_')),
-        cscFile: firmwareFiles.find(f=>f.includes('CSC_')&&!f.includes('HOME'))
-      });
+      // 🪟 Odin has no supported CLI, so flashing stays manual:
+      //    we open the Odin GUI and let the user load the patched AP + Start.
+      const odinMsg = await window.goAPI.call('launchOdinGUI', { apFile: patchedAp });
+      setRootLog(prev => prev + `\n🪟 ${odinMsg}\n\n` +
+        '📲 IN ODIN:\n' +
+        '1. Wait until ID:COM turns blue (device detected)\n' +
+        '2. Click "AP" → select the patched file above\n' +
+        '3. Keep "Auto Reboot" & "F.Reset Time" checked\n' +
+        '4. Click "Start" and wait for PASS! (green)\n\n' +
+        '⏳ Tap the button below once Odin finishes →'
+      );
+      setPatchStep('odin');
       
-      if (odinRes?.success) {
-        setRootState('success');
-        setRootLog(prev => prev + `\n\n✅ ${odinRes.message}\nDevice will reboot.`);
-        setDevice(prev => ({...prev, rooted: true}));
-      } else {
-        setRootState('error');
-        setRootLog(prev => prev + `\n\n❌ ${odinRes.message || 'Odin failed'}`);
-      }
     } catch (err) {
       setHasError(true);
       setRootState('error');
       setPatchStep('idle'); // 🔑 Reset on error too
       setRootLog(prev => prev + `\n\n❌ ${err.message}`);
+    }
+  };
+
+  // 🔑 Called when user clicks "Odin Finished, Verify Root"
+  const handleVerifyRoot = async () => {
+    setPatchStep('verifying');
+    setRootLog(prev => prev + '\n🔎 Checking for root after flash...\n');
+
+    try {
+      const res = await window.goAPI.call('verifyRootAfterFlash', {});
+
+      if (res?.rooted) {
+        setRootState('success');
+        setRootLog(prev => prev + `\n✅ ${res.message}`);
+        setDevice(prev => ({ ...prev, rooted: true }));
+      } else {
+        setRootState('error');
+        setRootLog(prev => prev + `\n⚠️ ${res.message}`);
+      }
+    } catch (err) {
+      setRootState('error');
+      setRootLog(prev => prev + `\n❌ ${err.message}`);
+    } finally {
+      setPatchStep('idle');
+      isRootingRef.current = false;
     }
   };
 
@@ -656,12 +677,33 @@ function App() {
                     ⏳ Pulling patched file from phone...
                   </div>
                 )}
+
+                {patchStep === 'odin' && (
+                  <button 
+                    onClick={handleVerifyRoot}
+                    style={{
+                      ...styles.primaryBtn,
+                      background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                      marginTop: '1rem',
+                      animation: 'pulse 1.5s infinite'
+                    }}
+                  >
+                    ✅ Odin Finished, Verify Root
+                  </button>
+                )}
+
+                {patchStep === 'verifying' && (
+                  <div style={{textAlign:'center', marginTop:'1rem', color:'#94a3b8'}}>
+                    ⏳ Waiting for device to boot & verifying root...
+                  </div>
+                )}
                 {/* Action Buttons */}
                 {rootState === 'rebooting' && (
                   <button 
                     onClick={() => {
                       isRootingRef.current = false;
                       setRootState('idle');
+                      setPatchStep('idle');
                       setRootLog('');
                     }}
                     style={styles.dangerBtn}
@@ -675,6 +717,7 @@ function App() {
                     onClick={() => {
                       isRootingRef.current = false;
                       setRootState('idle');
+                      setPatchStep('idle');
                       setRootLog('');
                     }}
                     style={styles.secondaryBtn}
@@ -688,6 +731,7 @@ function App() {
                     onClick={() => {
                       isRootingRef.current = false;
                       setRootState('idle');
+                      setPatchStep('idle');
                       setRootLog('');
                     }}
                     style={styles.primaryBtn}
