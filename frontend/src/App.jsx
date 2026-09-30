@@ -20,11 +20,17 @@ function App() {
   const detectionInterval = useRef(null);
   const rootLogRef = useRef(null);
   const isRootingRef = useRef(false);
+  const rootStateRef = useRef('idle');
   const fileInputRef = useRef(null);
+
+  // Keep a ref mirror of rootState so the connection poll never reads a stale closure.
+  useEffect(() => {
+    rootStateRef.current = rootState;
+  }, [rootState]);
 
   // --- CONNECTION LOGIC ---
   const checkDeviceConnection = async () => {
-    if (isRootingRef.current || rootState !== 'idle') {
+    if (isRootingRef.current || rootStateRef.current !== 'idle') {
       return;
     }
     
@@ -218,10 +224,9 @@ function App() {
       }
       
     } catch (err) {
+      isRootingRef.current = false;
       setRootState('error');
       setRootLog(prev => prev + `\n\n❌ Error: ${err.message}`);
-    } finally {
-      setTimeout(() => { isRootingRef.current = false; }, 15000);
     }
   };
 
@@ -285,6 +290,7 @@ function App() {
       setPatchStep('waiting');
 
     } catch (err) {
+      isRootingRef.current = false;
       setHasError(true);
       setRootState('error');
       setRootLog(prev => prev + `\n\n❌ ${err.message}`);
@@ -337,6 +343,7 @@ function App() {
       setPatchStep('odin');
       
     } catch (err) {
+      isRootingRef.current = false;
       setHasError(true);
       setRootState('error');
       setPatchStep('idle'); // 🔑 Reset on error too
