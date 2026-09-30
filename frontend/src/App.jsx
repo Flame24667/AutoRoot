@@ -91,7 +91,7 @@ function App() {
 
         setFirmwareStatus('checking');
         const fwRes = await window.goAPI.call('checkFirmware', {
-          model: info.model, device: info.device
+          model: info.model, device: info.device, brand: info.brand
         });
         setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
 
@@ -212,7 +212,8 @@ function App() {
           try {
             const fwRes = await window.goAPI.call('checkFirmware', { 
               model: device.model, 
-              device: device.device 
+              device: device.device,
+              brand: device.brand
             });
             setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
             setDropMsg(`✅ Firmware updated & ready to root!`);
@@ -247,7 +248,7 @@ function App() {
     
     try {
       const fwRes = await window.goAPI.call('checkFirmware', {
-        model: device.model, device: device.device
+        model: device.model, device: device.device, brand: device.brand
       });
       
       if (!fwRes.available || !fwRes.files || fwRes.files.length === 0) {
@@ -413,7 +414,7 @@ function App() {
         
         setFirmwareStatus('checking');
               const fwRes = await window.goAPI.call('checkFirmware', { 
-          model: info.model, device: info.device
+              model: info.model, device: info.device, brand: info.brand
               });
               setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
         

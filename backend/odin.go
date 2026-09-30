@@ -163,7 +163,7 @@ func getOdinPath() string {
 	if toolsDir == "" {
 		return ""
 	}
-	path := filepath.Join(toolsDir, "odin", "Odin3.exe")
+	path := filepath.Join(toolsDir, "odin", "Odin3_v3.14.4.exe")
 	if _, err := os.Stat(path); err == nil {
 		return path
 	}

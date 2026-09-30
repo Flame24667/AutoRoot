@@ -5,11 +5,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"log"
 )
 
 type Request struct {
@@ -85,7 +85,7 @@ func main() {
 		case "verifyRootAfterFlash":
 			rooted, msg := verifyRootAfterFlash()
 			resp.Result = map[string]interface{}{
-				"rooted": rooted,
+				"rooted":  rooted,
 				"message": msg,
 			}
 		case "rebootToBootloader":
@@ -387,6 +387,9 @@ func checkFirmware(payload interface{}) (interface{}, string) {
 
 	var foundFiles []string
 	var allFiles []string
+	var extractedFiles []string
+	var looseFiles []string
+	var archiveFiles []string
 
 	// 🔑 List EVERYTHING in firmware directory
 	fmt.Println("📁 All files in firmware directory:")
@@ -398,12 +401,21 @@ func checkFirmware(payload interface{}) (interface{}, string) {
 		relPath, _ := filepath.Rel(fwDir, path)
 		fmt.Printf("   - %s\n", relPath)
 		allFiles = append(allFiles, path)
+		if strings.EqualFold(filepath.Ext(path), ".zip") {
+			archiveFiles = append(archiveFiles, path)
+		} else if filepath.Dir(relPath) != "." {
+			extractedFiles = append(extractedFiles, path)
+		} else {
+			looseFiles = append(looseFiles, path)
+		}
 		return nil
 	})
 
 	// 🔑 Search for files containing model code
 	fmt.Printf("\n🔍 Searching for files containing '%s':\n", modelCode)
-	for _, path := range allFiles {
+	candidates := append(extractedFiles, looseFiles...)
+	candidates = append(candidates, archiveFiles...)
+	for _, path := range candidates {
 		basename := strings.ToUpper(filepath.Base(path))
 
 		if strings.Contains(basename, strings.ToUpper(modelCode)) {
