@@ -1,41 +1,37 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+// --- GLOBALS ---
 let goProcess;
 let mainWindow;
 const pending = new Map();
 let reqId = 0;
 const isDev = !app.isPackaged;
 
-function getGoPath() {
-    const ext = process.platform === 'win32' ? '.exe' : '';
-    const bin = `myapp-go${ext}`;
-    return isDev 
-        ? path.join(__dirname, '..', 'bin', bin)
-        : path.join(process.resourcesPath, 'bin', bin);
+// --- HELPER FUNCTIONS ---
+function getPreloadPath() {
+    return path.join(__dirname, 'preload.js');
 }
 
 function getFrontendPath() {
     if (isDev) return 'http://localhost:5173';
-    
-    // In packaged app, files live inside resources/app.asar (or unpacked)
-    const indexPath = path.join(app.getAppPath(), 'frontend', 'dist', 'index.html');
-    console.log('[Main] 📂 Resolved path:', indexPath);
-    console.log('[Main] ✅ Exists?', fs.existsSync(indexPath));
-    return indexPath;
+    return path.join(__dirname, '..', 'frontend', 'dist', 'index.html');
 }
 
 function startGo() {
-    const goPath = getGoPath();
+    const ext = process.platform === 'win32' ? '.exe' : '';
+    const goPath = isDev 
+        ? path.join(__dirname, '..', 'bin', `myapp-go${ext}`)
+        : path.join(process.resourcesPath, 'bin', `myapp-go${ext}`);
+        
     if (!fs.existsSync(goPath)) {
         console.error('[Main] ❌ Go binary missing:', goPath);
         return;
     }
     
     console.log('[Main] 🚀 Starting Go:', goPath);
-    goProcess = spawn(goPath, { 
+    goProcess = require('child_process').spawn(goPath, { 
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
         cwd: isDev ? process.cwd() : process.resourcesPath
@@ -65,13 +61,14 @@ function startGo() {
 
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 1200, height: 800,
+        width: 1200, 
+        height: 800,
         title: 'AutoRoot',
         webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        preload: path.join(__dirname, 'frontend', 'preload.js'),
-        webSecurity: false, // 🔑 Temporarily disabled to rule out CSP blocking file://
+            preload: getPreloadPath(),
+            webSecurity: false,
         allowRunningInsecureContent: true,
         },
     });
@@ -85,15 +82,8 @@ function createWindow() {
     }
 }
 
-ipcMain.handle('select-firmware-file', async () => {
-  const result = await dialog.showOpenDialog({
-    properties: ['openFile'],
-    filters: [{ name: 'Firmware ZIP', extensions: ['zip'] }]
-  });
-  return result.canceled ? null : result.filePaths[0];
-});
-
-ipcMain.handle('go:invoke', async (_e, action, payload) => {
+// --- IPC HANDLERS ---
+ipcMain.handle('go:invoke', async (_e, { action, payload }) => {
     return new Promise((resolve, reject) => {
         const id = `req_${++reqId}`;
         pending.set(id, { resolve, reject });
@@ -101,6 +91,24 @@ ipcMain.handle('go:invoke', async (_e, action, payload) => {
     });
 });
 
-app.whenReady().then(() => { startGo(); createWindow(); });
-app.on('window-all-closed', () => process.platform !== 'darwin' && app.quit());
-app.on('before-quit', () => goProcess?.kill());
+ipcMain.handle('select-firmware-file', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile'],
+        filters: [{ name: 'Firmware ZIP', extensions: ['zip'] }]
+    });
+    return result.canceled ? null : result.filePaths[0];
+});
+
+// --- STARTUP ---
+app.whenReady().then(() => {
+    startGo();
+    createWindow();
+});
+
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+    if (goProcess) goProcess.kill();
+});

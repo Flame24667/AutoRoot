@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 )
 
@@ -14,32 +13,22 @@ func ensureMagiskInstalled(deviceID string) (string, string) {
 		return "Magisk already installed", ""
 	}
 
-	// Find bundled Magisk APK
-	exePath, _ := os.Executable()
-	exeDir := filepath.Dir(exePath)
-	magiskPaths := []string{
-		filepath.Join(exeDir, "Magisk.apk"),
-		filepath.Join(exeDir, "resources", "Magisk.apk"),
-		filepath.Join(exeDir, "..", "Magisk.apk"),
+	// Find the bundled Magisk APK in Tools.
+	toolsDir := getToolsDir()
+	if toolsDir == "" {
+		return "", "Unable to resolve bundled Tools directory."
 	}
-
-	var apkPath string
-	for _, p := range magiskPaths {
-		if _, err := os.Stat(p); err == nil {
-			apkPath = p
-			break
-		}
+	magiskPaths, _ := filepath.Glob(filepath.Join(toolsDir, "Magisk*.apk"))
+	if len(magiskPaths) == 0 {
+		return "", "Magisk APK not found in Tools/."
 	}
-
-	if apkPath == "" {
-		return "", "Magisk.apk not found. Place it in the app folder or resources/."
-	}
+	apkPath := magiskPaths[0]
 
 	// Push & install
 	runAdb("-s", deviceID, "push", apkPath, "/data/local/tmp/Magisk.apk")
 	_, stderr, err := runAdb("-s", deviceID, "install", "-r", "/data/local/tmp/Magisk.apk")
 	runAdb("-s", deviceID, "shell", "rm", "/data/local/tmp/Magisk.apk")
-	
+
 	if err != nil {
 		return "", fmt.Sprintf("Install failed: %s. Enable 'Install via USB' in Developer Options.", stderr)
 	}

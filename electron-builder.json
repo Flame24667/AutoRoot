@@ -3,11 +3,15 @@
     "productName": "AutoRoot",
     "files": [
         "electron/**/*",
-        "frontend/dist/**/*"
+        "frontend/dist/**/*",
+        "frontend/preload.js"
     ],
     "extraResources": [
         "bin/*",
-        "Tools/odin/**/*",
+        {
+            "from": "Tools",
+            "to": "Tools"
+        },
         "setup/firmware-db.json",
         "scripts/firmware-installer.ps1",
         "scripts/gdown.exe",
@@ -22,7 +26,8 @@
     "win": {
         "target": [{ "target": "nsis", "arch": ["x64"] }],
         "forceCodeSigning": false,
-        "verifyUpdateCodeSignature": false
+        "verifyUpdateCodeSignature": false,
+        "requestedExecutionLevel": "requireAdministrator" 
     },
     "nsis": {
         "oneClick": false,

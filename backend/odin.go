@@ -43,14 +43,14 @@ func waitForDownloadMode() (string, string) {
 // findFirmwareFiles searches for Odin-compatible firmware files
 func findFirmwareFiles(model string) (map[string]string, string) {
 	firmwareDir := getFirmwareDirectory()
-	
+
 	files := map[string]string{
 		"AP": "",
 		"BL": "",
 		"CP": "",
 		"CSC": "",
 	}
-	
+
 	// Search for files matching pattern: AP_*.tar.md5, BL_*.tar.md5, etc.
 	searchPatterns := map[string][]string{
 		"AP":  {"AP_*.tar.md5", "AP_*.tar", fmt.Sprintf("*%s*AP*.tar.md5", model)},
@@ -58,7 +58,7 @@ func findFirmwareFiles(model string) (map[string]string, string) {
 		"CP":  {"CP_*.tar.md5", "CP_*.tar", fmt.Sprintf("*%s*CP*.tar.md5", model)},
 		"CSC": {"CSC_*.tar.md5", "CSC_*.tar", fmt.Sprintf("*%s*CSC*.tar.md5", model)},
 	}
-	
+
 	for slot, patterns := range searchPatterns {
 		for _, pattern := range patterns {
 			matches, _ := filepath.Glob(filepath.Join(firmwareDir, pattern))
@@ -68,12 +68,12 @@ func findFirmwareFiles(model string) (map[string]string, string) {
 			}
 		}
 	}
-	
+
 	// Verify we have at least AP and BL
 	if files["AP"] == "" || files["BL"] == "" {
 		return nil, "Missing required firmware files (AP and BL). Please ensure firmware package is complete."
 	}
-	
+
 	return files, ""
 }
 
@@ -84,11 +84,11 @@ func flashWithOdin(deviceID string, firmwareFiles map[string]string) (*OdinResul
 	if odinPath == "" {
 		return nil, "Odin executable not found"
 	}
-	
+
 	// Build Odin command line
 	// Odin3.exe -device:<device_id> -AP:<file> -BL:<file> -CP:<file> -CSC:<file> -auto
 	args := []string{}
-	
+
 	if firmwareFiles["AP"] != "" {
 		args = append(args, fmt.Sprintf("-AP:%s", firmwareFiles["AP"]))
 	}
@@ -101,19 +101,19 @@ func flashWithOdin(deviceID string, firmwareFiles map[string]string) (*OdinResul
 	if firmwareFiles["CSC"] != "" {
 		args = append(args, fmt.Sprintf("-CSC:%s", firmwareFiles["CSC"]))
 	}
-	
+
 	args = append(args, "-auto", "-reboot")
-	
+
 	// Execute Odin
 	cmd := exec.Command(odinPath, args...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	
+
 	err := cmd.Run()
-	
+
 	logOutput := stdout.String() + "\n" + stderr.String()
-	
+
 	if err != nil {
 		return &OdinResult{
 			Success: false,
@@ -121,7 +121,7 @@ func flashWithOdin(deviceID string, firmwareFiles map[string]string) (*OdinResul
 			Log:     logOutput,
 		}, ""
 	}
-	
+
 	return &OdinResult{
 		Success: true,
 		Message: "Flash completed successfully! Device will reboot.",
@@ -135,55 +135,73 @@ func verifyRootAfterFlash() (bool, string) {
 	maxWait := 10 * time.Minute
 	interval := 10 * time.Second
 	elapsed := time.Duration(0)
-	
+
 	fmt.Println("Waiting for device to boot...")
-	
+
 	for elapsed < maxWait {
 		time.Sleep(interval)
 		elapsed += interval
-		
+
 		// Try to detect device
 		out, _, err := runAdb("devices")
 		if err != nil || !strings.Contains(out, "device") {
 			continue
 		}
-		
+
 		// Device detected, check for root
 		rootCheck, _, _ := runAdb("shell", "su", "-c", "id")
 		if strings.Contains(rootCheck, "uid=0") {
 			return true, "Root verified successfully!"
 		}
 	}
-	
+
 	return false, "Device booted but root not detected. May need manual verification."
 }
 
 func getOdinPath() string {
-	exePath, _ := os.Executable()
-	exeDir := filepath.Dir(exePath)
-	
-	// Try multiple locations
-	paths := []string{
-		filepath.Join(exeDir, "odin", "Odin3.exe"),
-		filepath.Join(exeDir, "resources", "odin", "Odin3.exe"),
-		filepath.Join("odin", "Odin3.exe"),
+	toolsDir := getToolsDir()
+	if toolsDir == "" {
+		return ""
 	}
-	
-	for _, path := range paths {
-		if _, err := os.Stat(path); err == nil {
-			return path
+	path := filepath.Join(toolsDir, "odin", "Odin3.exe")
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	return ""
+}
+
+// LaunchOdinGUI opens the Odin GUI. Odin3.exe has no supported CLI, so the
+// flash itself stays manual: the user loads the patched AP and clicks Start.
+func LaunchOdinGUI(apFile string) (string, string) {
+	odinPath := getOdinPath()
+	if odinPath == "" {
+		return "", "Odin executable not found in resources/odin/"
+	}
+
+	// Reveal the patched AP in Explorer so the user can pick it in Odin.
+	if apFile != "" {
+		if _, err := os.Stat(apFile); err == nil {
+			exec.Command("explorer", "/select,"+apFile).Start()
 		}
 	}
-	
-	return ""
+
+	cmd := exec.Command(odinPath)
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Sprintf("Failed to launch Odin: %v", err)
+	}
+
+	if apFile != "" {
+		return fmt.Sprintf("Odin opened. In Odin: AP → select %s, then click Start.", filepath.Base(apFile)), ""
+	}
+	return "Odin opened. Load the patched AP into the AP slot, then click Start.", ""
 }
 
 func odinFlash(deviceID, apFile, blFile, cpFile, cscFile string) (string, string) {
 	// On Windows, you'd call Odin3.exe via CLI
 	// For now, this is a placeholder - you'll need the actual Odin CLI tool
-	
+
 	// Example command (Odin CLI doesn't officially exist, you'd need to use a wrapper):
 	// Odin3.exe -device:%deviceID% -AP:%apFile% -BL:%blFile% -CP:%cpFile% -CSC:%cscFile%
-	
+
 	return "Odin flash completed successfully", ""
 }

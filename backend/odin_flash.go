@@ -24,7 +24,7 @@ func FlashWithOdin(deviceID string, tarFile string) (*OdinFlashResult, string) {
 
 	odinPath := getOdinPath()
 	if odinPath == "" {
-		return nil, "Odin executable not found in resources/odin/"
+		return nil, "Odin executable not found in Tools/odin/."
 	}
 
 	// 2. Build Odin command
