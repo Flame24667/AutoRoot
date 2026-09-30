@@ -158,23 +158,95 @@ func verifyRootAfterFlash() (bool, string) {
 	return false, "Device booted but root not detected. May need manual verification."
 }
 
+func fileExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+// searchUpwards looks for <sub>/<file> and resources/<sub>/<file>, walking up
+// from start for up to maxLevels parent directories.
+func searchUpwards(start, sub, file string, maxLevels int) string {
+	dir, err := filepath.Abs(start)
+	if err != nil {
+		return ""
+	}
+	for i := 0; i < maxLevels; i++ {
+		for _, c := range []string{
+			filepath.Join(dir, sub, file),
+			filepath.Join(dir, "resources", sub, file),
+		} {
+			if fileExists(c) {
+				return c
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
 func getOdinPath() string {
+	// Explicit override wins: set AUTOROOT_ODIN_PATH to the full path of Odin3.exe.
+	if p := os.Getenv("AUTOROOT_ODIN_PATH"); fileExists(p) {
+		return p
+	}
+
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
-	
-	// Try multiple locations
-	paths := []string{
+	wd, _ := os.Getwd()
+	home := os.Getenv("USERPROFILE")
+
+	candidates := []string{
+		// Relative to the backend binary
 		filepath.Join(exeDir, "odin", "Odin3.exe"),
 		filepath.Join(exeDir, "resources", "odin", "Odin3.exe"),
-		filepath.Join("odin", "Odin3.exe"),
+		filepath.Join(exeDir, "..", "odin", "Odin3.exe"),
+		filepath.Join(exeDir, "..", "resources", "odin", "Odin3.exe"),
+		// Relative to the working directory
+		filepath.Join(wd, "odin", "Odin3.exe"),
+		filepath.Join(wd, "resources", "odin", "Odin3.exe"),
+		filepath.Join(wd, "..", "odin", "Odin3.exe"),
+		filepath.Join(wd, "..", "resources", "odin", "Odin3.exe"),
+		// Common user locations
+		filepath.Join(home, "Desktop", "Odin3.exe"),
+		filepath.Join(home, "Desktop", "odin", "Odin3.exe"),
+		filepath.Join(home, "Downloads", "Odin3.exe"),
+		filepath.Join(home, "Downloads", "odin", "Odin3.exe"),
+		filepath.Join(os.Getenv("APPDATA"), "AutoRoot", "odin", "Odin3.exe"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "AutoRoot", "resources", "odin", "Odin3.exe"),
 	}
-	
-	for _, path := range paths {
-		if _, err := os.Stat(path); err == nil {
-			return path
+
+	for _, p := range candidates {
+		if fileExists(p) {
+			return p
 		}
 	}
-	
+
+	// Walk up from the binary and the working directory.
+	for _, start := range []string{exeDir, wd} {
+		if p := searchUpwards(start, "odin", "Odin3.exe", 6); p != "" {
+			return p
+		}
+	}
+
+	// Last resort: look on PATH.
+	if p, err := exec.LookPath("Odin3.exe"); err == nil {
+		return p
+	}
+
+	fmt.Printf("[Odin] Odin3.exe not found. Searched:\n")
+	for _, p := range candidates {
+		fmt.Printf("   - %s\n", p)
+	}
+	fmt.Printf("   - upwards from: %s | %s\n", exeDir, wd)
+	fmt.Printf("   - PATH\n")
+	fmt.Printf("Hint: set AUTOROOT_ODIN_PATH to the full path of Odin3.exe\n")
 	return ""
 }
 
@@ -183,7 +255,7 @@ func getOdinPath() string {
 func LaunchOdinGUI(apFile string) (string, string) {
 	odinPath := getOdinPath()
 	if odinPath == "" {
-		return "", "Odin executable not found in resources/odin/"
+		return "", "Odin3.exe not found. Set AUTOROOT_ODIN_PATH, or place Odin3.exe in the odin/ (or resources/odin/) folder."
 	}
 
 	// Reveal the patched AP in Explorer so the user can pick it in Odin.
