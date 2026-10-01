@@ -8,9 +8,9 @@
     "extraResources": [
         "bin/*",
         "odin/**/*",
+        "Magisk*.apk",
         "setup/firmware-db.json",
         "scripts/firmware-installer.ps1",
-        "scripts/gdown.exe",
         {
         "from": "scripts/firmware-installer.ps1",
         "to": "firmware-installer.ps1"
