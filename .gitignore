@@ -2,3 +2,4 @@ node_modules
 bin/
 release/
 setup/firmware
+frontend/node_modules
