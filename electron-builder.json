@@ -26,8 +26,7 @@
     "win": {
         "target": [{ "target": "nsis", "arch": ["x64"] }],
         "forceCodeSigning": false,
-        "verifyUpdateCodeSignature": false,
-        "requestedExecutionLevel": "requireAdministrator" 
+        "verifyUpdateCodeSignature": false
     },
     "nsis": {
         "oneClick": false,

@@ -2,7 +2,7 @@
     "name": "autoroot",
     "version": "1.0.0",
     "description": "Offline desktop app for AutoRoot",
-    "author": "Your Name",
+    "author": "Anonymous",
     "main": "electron/main.js",
     "scripts": {
         "dev:frontend": "cd frontend && npm run dev",

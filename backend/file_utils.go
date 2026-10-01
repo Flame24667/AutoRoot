@@ -1,35 +1,45 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-	"encoding/json"
 )
 
 func handleDroppedFirmware(payload interface{}) (map[string]interface{}, string) {
 	// 🔑 Debug: Log exactly what Go receives
 	fmt.Printf("📥 Go received payload type: %T, value: %+v\n", payload, payload)
 
-	// Handle common bridge formats
-	var data map[string]interface{}
+	filePath := ""
+
 	switch v := payload.(type) {
 	case map[string]interface{}:
-		data = v
+		if val, ok := v["filePath"].(string); ok {
+			filePath = strings.TrimSpace(val)
+		}
+	case map[string]string:
+		if val, ok := v["filePath"]; ok {
+			filePath = strings.TrimSpace(val)
+		}
 	case string:
-		// Some bridges send JSON strings
-		if err := json.Unmarshal([]byte(v), &data); err != nil {
-			return nil, fmt.Sprintf("Failed to parse payload JSON: %v", err)
+		filePath = strings.TrimSpace(v)
+		if filePath != "" && strings.HasPrefix(filePath, "{") {
+			var data map[string]interface{}
+			if err := json.Unmarshal([]byte(filePath), &data); err == nil {
+				if val, ok := data["filePath"].(string); ok {
+					filePath = strings.TrimSpace(val)
+				}
+			}
 		}
 	default:
-		return nil, fmt.Sprintf("Invalid payload type: %T. Expected object or JSON string", payload)
+		return nil, fmt.Sprintf("Invalid payload type: %T. Expected file path, object, or JSON string", payload)
 	}
 
-	filePath, ok := data["filePath"].(string)
-	if !ok || filePath == "" {
+	if filePath == "" {
 		return nil, "Missing or empty 'filePath' in payload"
 	}
 

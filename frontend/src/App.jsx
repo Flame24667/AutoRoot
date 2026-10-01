@@ -10,7 +10,6 @@ function App() {
   const [firmwareStatus, setFirmwareStatus] = useState('idle');
   const [rootState, setRootState] = useState('idle');
   const [rootLog, setRootLog] = useState('');
-  const [isDragging, setIsDragging] = useState(false);
   const [dropMsg, setDropMsg] = useState('');
   const [patchStep, setPatchStep] = useState('idle'); // 'idle', 'waiting', 'pulling'
   const [hasError, setHasError] = useState(false);
@@ -113,18 +112,6 @@ function App() {
   };
 
   // --- FILE HANDLERS ---
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
   const handleFileSelect = async () => {
     if (!window.electronAPI?.selectFirmware) {
       alert('️ App config error: File picker bridge missing. Restart the app.');
@@ -152,85 +139,6 @@ function App() {
     } catch (err) {
       setDropMsg(`❌ ${err.message}`);
     }
-    setTimeout(() => setDropMsg(''), 5000);
-  };
-
-  const handleDrop = async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    
-    const zips = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.zip'));
-    if (zips.length === 0) {
-      setDropMsg('❌ Only .zip files');
-      setTimeout(() => setDropMsg(''), 3000);
-      return;
-    }
-
-    setDropMsg('📦 Processing...');
-    for (const f of zips) {
-      if (!f.path) {
-        console.warn('⚠️ Drag & drop blocked: file.path missing. Use "Select Firmware" button.');
-        continue;
-      }
-      try {
-        const res = await window.goAPI.call('handleDroppedFirmware', { filePath: f.path });
-        if (res?.success) setDropMsg('✅ Added!');
-      } catch (err) {
-        console.error('Drop error:', err);
-      }
-    }
-    setTimeout(() => setDropMsg(''), 5000);
-  };
-
-  const processFirmwareFiles = async (files) => {
-    let successCount = 0;
-    let errors = [];
-
-    for (const file of files) {
-      try {
-        console.log('📂 Sending to backend:', file.path);
-        const result = await window.goAPI.call('handleDroppedFirmware', { filePath: file.path });
-        
-        if (result?.success) {
-          successCount++;
-        } else {
-          errors.push(result?.error || 'Backend returned failure');
-        }
-      } catch (err) {
-        console.error('❌ File processing failed:', err);
-        errors.push(err.message || 'Unknown error');
-      }
-    }
-
-    if (successCount > 0) {
-      setDropMsg(`✅ Successfully added ${successCount} file(s)! Checking firmware...`);
-      
-      // Force refresh firmware status
-      if (device) {
-        setTimeout(async () => {
-          try {
-            const fwRes = await window.goAPI.call('checkFirmware', { 
-              model: device.model, 
-              device: device.device,
-              brand: device.brand
-            });
-            setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
-            setDropMsg(`✅ Firmware updated & ready to root!`);
-          } catch (err) {
-            setFirmwareStatus('available');
-            setDropMsg(`✅ File added successfully!`);
-          }
-        }, 600);
-      } else {
-        setFirmwareStatus('available');
-        setDropMsg(`✅ File added successfully!`);
-      }
-    } else {
-      setDropMsg(`❌ Failed to add files: ${errors.join(', ')}`);
-    }
-
-    // Clear message after 5 seconds
     setTimeout(() => setDropMsg(''), 5000);
   };
 
@@ -315,15 +223,17 @@ function App() {
       
       setRootLog(prev => prev + `✅ Found all firmware files\n\n`);
 
-      // Transfer AP
-      setRootLog(prev => prev + '📤 Transferring AP to phone...\n');
+      // Check for the AP on the connected phone before transferring it.
+      setRootLog(prev => prev + '🔍 Checking whether AP is already on phone...\n');
       const transferRes = await window.goAPI.call('transferFileToDevice', {
-        filePath: apFile, destination: '/sdcard/Download/AP_file.tar'
+        deviceID: device.serial,
+        filePath: apFile,
+        destination: '/sdcard/Download/AP_file.tar'
       });
       if (!transferRes?.success) throw new Error('Transfer failed. Check USB connection.');
 
       setRootLog(prev => prev + 
-        '✅ AP transferred\n\n' +
+        (transferRes.alreadyExists ? '✅ AP already on phone\n\n' : '✅ AP transferred\n\n') +
         '📲 ON PHONE:\n' +
         '1. Open Magisk → Install → Select & Patch\n' +
         '2. Choose "AP_file.tar"\n' +
@@ -371,28 +281,45 @@ function App() {
       setRootLog(prev => prev + '\n👉 Press Volume UP on phone\n⏳ Waiting...\n');
       await new Promise(r => setTimeout(r, 15000));
       
-      setRootLog(prev => prev + '\n🔥 Flashing with Odin...\nDO NOT DISCONNECT!\n');
-      const odinRes = await window.goAPI.call('odinFlash', {
-        deviceID: device.serial,
-        apFile: patchedAp,
-        blFile: firmwareFiles.find(f=>f.includes('BL_')),
-        cpFile: firmwareFiles.find(f=>f.includes('CP_')),
-        cscFile: firmwareFiles.find(f=>f.includes('CSC_')&&!f.includes('HOME'))
-      });
-      
-      if (odinRes?.success) {
-        setRootState('success');
-        setRootLog(prev => prev + `\n\n✅ ${odinRes.message}\nDevice will reboot.`);
-        setDevice(prev => ({...prev, rooted: true}));
-      } else {
-        setRootState('error');
-        setRootLog(prev => prev + `\n\n❌ ${odinRes.message || 'Odin failed'}`);
-      }
+      const odinMsg = await window.goAPI.call('launchOdinGUI', { apFile: patchedAp });
+      setRootLog(prev => prev + `\n🪟 ${odinMsg}\n\n` +
+        '📲 IN ODIN:\n' +
+        '1. Wait until ID:COM turns blue (device detected)\n' +
+        '2. Click "AP" and select the patched file above\n' +
+        '3. Keep "Auto Reboot" and "F.Reset Time" checked\n' +
+        '4. Click "Start" and wait for PASS! (green)\n\n' +
+        '⏳ Tap the button below once Odin finishes →'
+      );
+      setPatchStep('odin');
     } catch (err) {
+      isRootingRef.current = false;
       setHasError(true);
       setRootState('error');
       setPatchStep('idle'); // 🔑 Reset on error too
       setRootLog(prev => prev + `\n\n❌ ${err.message}`);
+    }
+  };
+
+  const handleVerifyRoot = async () => {
+    setPatchStep('verifying');
+    setRootLog(prev => prev + '\n🔎 Checking for root after flash...\n');
+
+    try {
+      const res = await window.goAPI.call('verifyRootAfterFlash', {});
+      if (res?.rooted) {
+        setRootState('success');
+        setRootLog(prev => prev + `\n✅ ${res.message}`);
+        setDevice(prev => ({ ...prev, rooted: true }));
+      } else {
+        setRootState('error');
+        setRootLog(prev => prev + `\n⚠️ ${res.message}`);
+      }
+    } catch (err) {
+      setRootState('error');
+      setRootLog(prev => prev + `\n❌ ${err.message}`);
+    } finally {
+      setPatchStep('idle');
+      isRootingRef.current = false;
     }
   };
 
@@ -547,30 +474,11 @@ function App() {
       lineHeight: '1.6',
       minHeight: '100px'
     },
-    dropOverlay: {
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      background: 'rgba(15, 23, 42, 0.9)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: '#38bdf8', fontSize: '1.5rem', fontWeight: '600',
-      border: '4px dashed #38bdf8', pointerEvents: 'none'
-    }
   };
 
   // --- RENDER ---
   return (
-    <div 
-      style={styles.container} 
-      onDragOver={handleDragOver} 
-      onDragLeave={handleDragLeave} 
-      onDrop={handleDrop}
-    >
-      {/* Drop Overlay */}
-      {isDragging && (
-        <div style={styles.dropOverlay}>
-          📥 Drop Firmware .zip Here
-        </div>
-      )}
-
+    <div style={styles.container}>
       <header style={styles.header}>
         <h1 style={styles.title}>🔓 AutoRoot</h1>
         <p style={styles.subtitle}>Secure Android Root Automation</p>
@@ -643,9 +551,6 @@ function App() {
                       📂 Select Firmware File
                     </button>
                     
-                    <p style={{ color: '#64748b', fontSize: '0.8rem', margin: '0.5rem 0 0 0' }}>
-                      Drag & drop may be blocked by Electron security
-                    </p>
                   </div>
                 )}
 
@@ -699,6 +604,26 @@ function App() {
                 {patchStep === 'pulling' && (
                   <div style={{textAlign:'center', marginTop:'1rem', color:'#94a3b8'}}>
                     ⏳ Pulling patched file from phone...
+                  </div>
+                )}
+
+                {patchStep === 'odin' && (
+                  <button
+                    onClick={handleVerifyRoot}
+                    style={{
+                      ...styles.primaryBtn,
+                      background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                      marginTop: '1rem',
+                      animation: 'pulse 1.5s infinite'
+                    }}
+                  >
+                    ✅ Odin Finished, Verify Root
+                  </button>
+                )}
+
+                {patchStep === 'verifying' && (
+                  <div style={{textAlign:'center', marginTop:'1rem', color:'#94a3b8'}}>
+                    ⏳ Waiting for device to boot and verifying root...
                   </div>
                 )}
                 {/* Action Buttons */}

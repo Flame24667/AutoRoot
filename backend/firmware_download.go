@@ -55,16 +55,16 @@ func downloadFirmware(payload interface{}) (interface{}, string) {
 	// Check if already exists
 	if _, err := os.Stat(destPath); err == nil {
 		return map[string]interface{}{
-			"success":  true,
-			"message":  "Firmware already downloaded",
-			"path":     destPath,
-			"skipped":  true,
+			"success": true,
+			"message": "Firmware already downloaded",
+			"path":    destPath,
+			"skipped": true,
 		}, ""
 	}
 
 	// Download file
 	fmt.Printf("Downloading firmware for %s from %s...\n", model, url)
-	
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Sprintf("Download failed: %v", err)
@@ -149,7 +149,7 @@ func listAvailableFirmware(payload interface{}) (interface{}, string) {
 	var available []FirmwareInfo
 	for _, device := range db.Devices {
 		if strings.Contains(strings.ToUpper(device.Model), strings.ToUpper(model)) ||
-		   strings.Contains(strings.ToUpper(model), strings.ToUpper(device.Model)) {
+			strings.Contains(strings.ToUpper(model), strings.ToUpper(device.Model)) {
 			for _, fw := range device.Firmware {
 				available = append(available, FirmwareInfo{
 					Brand:          device.Brand,
@@ -181,27 +181,17 @@ func listAvailableFirmware(payload interface{}) (interface{}, string) {
 	}, ""
 }
 
-// getFirmwareDirectory returns the firmware directory path
+// getFirmwareDirectory returns the firmware directory path.
+// Keep it in the user's Documents folder so it remains stable and easy to find.
 func getFirmwareDirectory() string {
-	exePath, err := os.Executable()
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	exeDir := filepath.Dir(exePath)
 
-	// Check AppData first
-	if appData := os.Getenv("APPDATA"); appData != "" {
-		fwDir := filepath.Join(appData, "AutoRoot", "firmware")
-		if _, err := os.Stat(fwDir); err == nil {
-			return fwDir
-		}
-		// Create it
-		os.MkdirAll(fwDir, 0755)
-		return fwDir
+	fwDir := filepath.Join(homeDir, "Documents", "AutoRoot", "firmware")
+	if err := os.MkdirAll(fwDir, 0755); err != nil {
+		return ""
 	}
-
-	// Fallback to local
-	localFw := filepath.Join(exeDir, "firmware")
-	os.MkdirAll(localFw, 0755)
-	return localFw
+	return fwDir
 }

@@ -1,5 +1,8 @@
 !include "LogicLib.nsh"
 
+!macro customCheckAppRunning
+!macroend
+
 !macro customInstall
   MessageBox MB_YESNO|MB_ICONQUESTION "Download device firmware now?$\n$\nRequires internet. Files saved for offline use." IDNO SkipFirmware
 

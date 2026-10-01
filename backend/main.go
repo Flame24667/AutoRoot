@@ -152,9 +152,18 @@ func main() {
 				}
 			}
 		case "handleDroppedFirmware":
-			payload := req.Payload.(map[string]interface{})
-			filePath, _ := payload["filePath"].(string)
-			resp.Result, resp.Error = handleDroppedFirmware(filePath)
+			var filePath string
+			switch v := req.Payload.(type) {
+			case map[string]interface{}:
+				filePath, _ = v["filePath"].(string)
+			case string:
+				filePath = v
+			default:
+				resp.Error = "Missing or invalid firmware file path"
+			}
+			if resp.Error == "" {
+				resp.Result, resp.Error = handleDroppedFirmware(filePath)
+			}
 		case "extractFirmware":
 			payload := req.Payload.(map[string]interface{})
 			zipFile := payload["zipFile"].(string)
@@ -175,9 +184,10 @@ func main() {
 			}
 		case "transferFileToDevice":
 			payload := req.Payload.(map[string]interface{})
+			deviceID, _ := payload["deviceID"].(string)
 			filePath, _ := payload["filePath"].(string)
 			destPath, _ := payload["destination"].(string)
-			resp.Result, resp.Error = transferFileToDevice(filePath, destPath)
+			resp.Result, resp.Error = transferFileToDevice(deviceID, filePath, destPath)
 		case "getPatchedFileFromDevice":
 			payload := req.Payload.(map[string]interface{})
 			sourcePath, _ := payload["sourcePath"].(string)
