@@ -7,39 +7,35 @@ let goProcess;
 let mainWindow;
 const pending = new Map();
 let reqId = 0;
+let destructiveJob = false;
 const isDev = !app.isPackaged;
+const staticUI = process.env.AUTOROOT_STATIC_UI === '1';
 
 // The backend is the only thing that touches the phone. This whitelist is the
 // trust boundary: an action that is not listed here cannot be invoked from the
 // renderer, even if the UI is compromised.
 //
-// Note what is deliberately absent: there is no "flash" action. Flashing
-// requires building a plan, which the backend refuses without an explicit
-// approval recorded in the persisted session. Keeping the destructive step out
-// of the IPC surface means a stray click cannot start it.
+// Flashing is exposed only as a guarded background workflow job; backend
+// preflight, file/device-bound approval and final wipe confirmation remain mandatory.
 const allowedActions = new Set([
     'ping',
+    'databasePlan',
+    'startAutomationJob',
+    'automationStatus',
     'getDeviceInfo',
     'checkFirmware',
-    'rebootToDownloadMode',
     'checkOdinAvailability',
     'verifyRootAfterFlash',
     'extractFirmwareToFolder',
     'handleDroppedFirmware',
-    'transferFileToDevice',
-    'ensureMagiskInstalled',
-    'keepDeviceAwake',
-    'getLatestMagiskPatchedFile',
     'listAvailableFirmware',
     // Hardened workflow
     'startSession',
-    'adoptFirmware',
-    'fetchFirmware',
-    'recordPatchedAP',
+    'beginNewRun',
     'preflight',
     'dryRun',
     'engineStatus',
-    'approveFlash',
+    'diagnoseEngineLaunch',
     'flashPlan',
     'verifyRoot',
     'sessionState',
@@ -50,6 +46,8 @@ function getGoPath() {
     const ext = process.platform === 'win32' ? '.exe' : '';
     const bin = `myapp-go${ext}`;
     if (isDev) {
+        const automationBuild = path.join(__dirname, '..', 'bin', `myapp-go.automation${ext}`);
+        if (fs.existsSync(automationBuild)) return automationBuild;
         const developmentBuild = path.join(__dirname, '..', 'bin', `myapp-go.new${ext}`);
         if (fs.existsSync(developmentBuild)) return developmentBuild;
         return path.join(__dirname, '..', 'bin', bin);
@@ -58,7 +56,8 @@ function getGoPath() {
 }
 
 function getFrontendPath() {
-    if (isDev) return 'http://localhost:5173';
+    if (isDev && !staticUI) return 'http://localhost:5173';
+    if (isDev && staticUI) return path.join(__dirname, '..', 'work-cache', 'poc-ui', 'index.html');
     
     // In packaged app, files live inside resources/app.asar (or unpacked)
     const indexPath = path.join(app.getAppPath(), 'frontend', 'dist', 'index.html');
@@ -96,6 +95,8 @@ function startGo() {
             const res = JSON.parse(line);
             const p = pending.get(res.id);
             if (p) {
+            if (res.result?.operation === 'executeFlash') destructiveJob = res.result.status === 'running';
+            clearTimeout(p.timer);
             if (res.error) p.reject(new Error(res.error));
             else p.resolve(res.result);
             pending.delete(res.id);
@@ -131,9 +132,15 @@ function createWindow() {
         allowRunningInsecureContent: false,
         },
     });
+    mainWindow.on('close', event => {
+        if (destructiveJob) {
+            event.preventDefault();
+            dialog.showErrorBox('Flashing in progress', 'Do not close AutoRoot or disconnect USB until flashing completes.');
+        }
+    });
 
     const target = getFrontendPath();
-    if (isDev) {
+    if (isDev && !staticUI) {
         mainWindow.loadURL(target);
         mainWindow.webContents.openDevTools();
     } else {
@@ -163,6 +170,10 @@ ipcMain.handle('go:invoke', async (_e, action, payload) => {
         throw new Error('Backend is not running. Restart AutoRoot and try again.');
     }
 
+    // Protect the window before dispatch, not only after the job-start reply.
+    const startsFlash = action === 'startAutomationJob' && payload?.operation === 'executeFlash';
+    if (startsFlash) destructiveJob = true;
+
     return new Promise((resolve, reject) => {
         const id = `req_${++reqId}`;
         const timeoutMs = action === 'verifyRootAfterFlash' ? 11 * 60 * 1000 : 5 * 60 * 1000;
@@ -173,7 +184,7 @@ ipcMain.handle('go:invoke', async (_e, action, payload) => {
 
         pending.set(id, {
             resolve: value => { clearTimeout(timer); resolve(value); },
-            reject: error => { clearTimeout(timer); reject(error); },
+            reject: error => { clearTimeout(timer); if (startsFlash) destructiveJob = false; reject(error); },
             timer,
         });
 
@@ -181,6 +192,7 @@ ipcMain.handle('go:invoke', async (_e, action, payload) => {
             if (!err) return;
             clearTimeout(timer);
             pending.delete(id);
+            if (startsFlash) destructiveJob = false;
             reject(err);
         });
     });
@@ -188,4 +200,11 @@ ipcMain.handle('go:invoke', async (_e, action, payload) => {
 
 app.whenReady().then(() => { startGo(); createWindow(); });
 app.on('window-all-closed', () => process.platform !== 'darwin' && app.quit());
-app.on('before-quit', () => goProcess?.kill());
+app.on('before-quit', event => {
+    if (destructiveJob) {
+        event.preventDefault();
+        dialog.showErrorBox('Flashing in progress', 'Keep AutoRoot open and USB connected. Wait until the flash job completes.');
+        return;
+    }
+    goProcess?.kill();
+});

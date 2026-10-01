@@ -20,7 +20,7 @@ func withTempState(t *testing.T) {
 func TestSessionPersistsAcrossReload(t *testing.T) {
 	withTempState(t)
 
-	s := NewSession("R9RY100N48L", "SM-A065F", "XID", "4")
+	s := NewSession("TEST-DEVICE-001", "SM-A065F", "XID", "4")
 	if err := s.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestSessionPersistsAcrossReload(t *testing.T) {
 	if err := s.Advance(StageAdbAuthorized); err != nil {
 		t.Fatal(err)
 	}
-	s.SetArtifact("firmware", `D:\Data Kelola IT\Firmware\SM-A065F\fw.zip`)
+	s.SetArtifact("firmware", `D:\AutoRoot\firmware\SM-A065F\fw.zip`)
 
 	// A fresh load must see everything, which is what makes a resumed run
 	// possible after the app is closed or the machine reboots.
@@ -44,7 +44,7 @@ func TestSessionPersistsAcrossReload(t *testing.T) {
 	if loaded.Artifact("firmware") == "" {
 		t.Error("the firmware artifact was lost across reload")
 	}
-	if !loaded.MatchesDevice("R9RY100N48L", "SM-A065F") {
+	if !loaded.MatchesDevice("TEST-DEVICE-001", "SM-A065F") {
 		t.Error("session should match its own device")
 	}
 }

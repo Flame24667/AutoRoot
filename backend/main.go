@@ -3,12 +3,14 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type Request struct {
@@ -47,7 +49,17 @@ func main() {
 				}
 			}()
 
+			if automationBusy() && req.Action != "automationStatus" && req.Action != "ping" {
+				resp.Error = "an automation job is running; wait for its result"
+				return
+			}
 			switch req.Action {
+			case "automationStatus":
+				resp.Result = automationStatus()
+			case "startAutomationJob":
+				resp.Result, resp.Error = startAutomationJob(req.Payload)
+			case "databasePlan":
+				resp.Result, resp.Error = databasePlan(req.Payload)
 			case "ping":
 				resp.Result = "pong"
 			case "getDeviceInfo":
@@ -74,12 +86,11 @@ func main() {
 				}
 				SaveDeviceHistory(deviceMap, fwAvailable)
 			case "rootDevice":
-				resp.Result, resp.Error = rootDevice()
+				resp.Error = "legacy root action disabled; use the validated workflow"
 			case "checkFirmware":
 				resp.Result, resp.Error = checkFirmware(req.Payload)
 			case "rebootToDownloadMode":
-				deviceID := req.Payload.(map[string]interface{})["deviceID"].(string)
-				resp.Result, resp.Error = rebootToDownloadMode(deviceID)
+				resp.Error = "legacy reboot disabled; use a reviewed engine probe with explicit consent"
 			case "checkOdinAvailability":
 				odinPath := getOdinPath()
 				resp.Result = map[string]interface{}{
@@ -210,6 +221,8 @@ func main() {
 			// Hardened workflow actions.
 			case "startSession":
 				resp.Result, resp.Error = startSession(req.Payload)
+			case "beginNewRun":
+				resp.Result, resp.Error = beginNewRun(req.Payload)
 			case "adoptFirmware":
 				resp.Result, resp.Error = adoptFirmware(req.Payload)
 			case "fetchFirmware":
@@ -222,6 +235,8 @@ func main() {
 				resp.Result, resp.Error = dryRun(req.Payload)
 			case "engineStatus":
 				resp.Result, resp.Error = engineStatusAction(req.Payload)
+			case "diagnoseEngineLaunch":
+				resp.Result, resp.Error = diagnoseEngineLaunch(req.Payload)
 			case "approveFlash":
 				resp.Result, resp.Error = approveFlash(req.Payload)
 			case "flashPlan":
@@ -237,7 +252,7 @@ func main() {
 					resp.Result = map[string]interface{}{"active": false}
 				}
 			case "resetSession":
-				resp.Result = map[string]interface{}{"cleared": ClearSession() == nil}
+				resp.Error = "unsafe session deletion disabled; use confirmed beginNewRun after restoring stock"
 			default:
 				resp.Error = "unknown action"
 			}
@@ -254,13 +269,22 @@ func runAdb(args ...string) (string, string, error) {
 		return "", "", fmt.Errorf("ADB not found. Install Android Platform Tools and add to PATH.")
 	}
 
-	exec.Command(adbPath, "start-server").Run()
-
-	cmd := exec.Command(adbPath, args...)
+	timeout := 2 * time.Minute
+	for _, arg := range args {
+		if arg == "push" || arg == "pull" {
+			timeout = 45 * time.Minute
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, adbPath, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err = cmd.Run()
+	if ctx.Err() != nil {
+		err = ctx.Err()
+	}
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), err
 }
 
@@ -389,12 +413,13 @@ func getDeviceInfo() (interface{}, string) {
 		"androidVersion":    version,
 		"buildVersion":      buildVersion,
 		"binaryBit":         binaryBit,
-		"rooted":            strings.Contains(rootOut, "uid=0"),
+		"rooted":            rootIdentity(rootOut),
 		"bootloaderLocked":  strings.TrimSpace(flashLocked) != "0" || strings.EqualFold(strings.TrimSpace(vbmetaState), "locked"),
 		"flashLocked":       strings.TrimSpace(flashLocked),
 		"vbmetaState":       strings.TrimSpace(vbmetaState),
 		"verifiedBootState": strings.TrimSpace(verifiedBootState),
 		"salesCode":         strings.TrimSpace(salesCode),
+		"cscBuild":          deviceProperty(deviceID, "ro.omc.build.version"),
 	}, ""
 }
 

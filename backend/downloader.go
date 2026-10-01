@@ -261,7 +261,11 @@ func FileSHA256(path string) (string, error) {
 	defer f.Close()
 
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	st, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(h, &progressReader{reader: f, total: st.Size(), detail: "SHA-256: " + filepath.Base(path)}); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
@@ -270,16 +274,16 @@ func FileSHA256(path string) (string, error) {
 // DownloadState is the resume record persisted next to a partial download so
 // a restart can continue instead of starting over.
 type DownloadState struct {
-	URL            string `json:"url"`
-	DestPath       string `json:"destPath"`
-	PartPath       string `json:"partPath"`
+	URL             string `json:"url"`
+	DestPath        string `json:"destPath"`
+	PartPath        string `json:"partPath"`
 	BytesDownloaded int64  `json:"bytesDownloaded"`
-	Total          int64  `json:"total"`
-	ExpectedSHA256 string `json:"expectedSha256,omitempty"`
-	StartedAt      string `json:"startedAt"`
-	UpdatedAt      string `json:"updatedAt"`
-	Done           bool   `json:"done"`
-	SHA256         string `json:"sha256,omitempty"`
+	Total           int64  `json:"total"`
+	ExpectedSHA256  string `json:"expectedSha256,omitempty"`
+	StartedAt       string `json:"startedAt"`
+	UpdatedAt       string `json:"updatedAt"`
+	Done            bool   `json:"done"`
+	SHA256          string `json:"sha256,omitempty"`
 }
 
 func (d *DownloadState) save() error {

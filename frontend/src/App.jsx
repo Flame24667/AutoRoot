@@ -1,18 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
-
-// The UI mirrors the backend's stage order. It cannot skip ahead because the
-// backend refuses to build a flash plan until every earlier stage has been
-// recorded and approved, so the button states here are a convenience, not the
-// actual guard.
-const STAGES = [
-  { key: 'device-check', label: 'Detect device' },
-  { key: 'firmware-valid', label: 'Firmware validated' },
-  { key: 'patched-ap', label: 'AP patched' },
-  { key: 'preflight-ok', label: 'Preflight passed' },
-  { key: 'flash-approved', label: 'Flash approved' },
-];
-
-const STAGE_RANK = Object.fromEntries(STAGES.map((s, i) => [s.key, i]));
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { isPostFlash, matchesDevice } from './workflow-view.js';
+import WorkbenchView from './WorkbenchView.jsx';
+import './App.css';
 
 function App() {
   const [device, setDevice] = useState(null);
@@ -23,8 +12,37 @@ function App() {
   const [preflight, setPreflight] = useState(null);
   const [engine, setEngine] = useState(null);
   const [flashCmd, setFlashCmd] = useState('');
-  const [downloadUrl, setDownloadUrl] = useState('');
+  const [activeTab, setActiveTab] = useState('overview');
   const [approved, setApproved] = useState(false);
+  const [database, setDatabase] = useState(null);
+  const [patchPath, setPatchPath] = useState('');
+  const [job, setJob] = useState(null);
+  const [downloadIdentity, setDownloadIdentity] = useState(null);
+  const [rootProof, setRootProof] = useState(null);
+  const initialCheckStarted = useRef(false);
+
+  const runJob = async (label, operation, payload = {}) => {
+    setBusy(true); setError(''); say(`→ ${label}`);
+    if (!['approveFlash', 'executeFlash'].includes(operation)) { setApproved(false); setFlashCmd(''); setPreflight(null); }
+    try {
+      const started = await window.goAPI.call('startAutomationJob', {operation, ...payload});
+      setJob(started);
+      for (;;) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const status = await window.goAPI.call('automationStatus', {});
+        setJob(status);
+        if (status.id !== started.id) throw new Error('Job identity changed. Stop and inspect.');
+        if (status.status === 'running') continue;
+        if (status.status !== 'completed') throw new Error(status.error || 'Job failed');
+        if (status.result?.ok === false) throw new Error((status.result.errors || []).join('; ') || 'Validation failed');
+        say(`✓ ${label}`);
+        const saved = await window.goAPI.call('sessionState', {});
+        setSession(saved.session || null);
+        return status.result;
+      }
+    } catch (err) { setError(err.message); say(`✗ ${label}: ${err.message}`); throw err; }
+    finally { setBusy(false); }
+  };
 
   const say = useCallback((line) => {
     setLog((prev) => [...prev, line]);
@@ -32,6 +50,7 @@ function App() {
 
   const run = useCallback(async (label, action, payload = {}) => {
     setBusy(true);
+    setError('');
     try {
       say(`→ ${label}`);
       const result = await window.goAPI.call(action, payload);
@@ -53,40 +72,72 @@ function App() {
       return info;
     } catch {
       setDevice(null);
+      setRootProof(null);
       return null;
     }
   }, []);
 
-  // On mount: detect the phone, resume any persisted session, and read the
-  // engine and preflight status. All of it is read-only.
-  useEffect(() => {
-    (async () => {
+  const checkConnection = useCallback(async () => {
+    setBusy(true); setError(''); setApproved(false); setRootProof(null);
+    try {
+      const saved = await window.goAPI.call('sessionState', {});
+      let active = saved.session || null;
+      setSession(active); // Keep post-flash guidance visible even without ADB.
       const info = await refresh();
       if (!info) return;
-
-      try {
-        const started = await window.goAPI.call('startSession', {});
-        setSession(started.session);
-        say(
-          started.resumed
-            ? `Resumed session at stage "${started.stage}"`
-            : `Started a new session at stage "${started.stage}"`
-        );
-      } catch (err) {
-        setError(err.message);
+      if (active && !matchesDevice(active, info)) {
+        setError('Connected phone does not match the saved session. No workflow actions will run.');
         return;
       }
-
-      try {
-        setEngine(await window.goAPI.call('engineStatus', {}));
-        setPreflight(await window.goAPI.call('preflight', {}));
-      } catch (err) {
-        setError(err.message);
+      if (!active) {
+        const started = await window.goAPI.call('startSession', {});
+        active = started.session;
+        setSession(active);
       }
-    })();
+      setEngine(await window.goAPI.call('engineStatus', {}));
+      if (isPostFlash(active) || info.rooted) {
+        const proof = await window.goAPI.call('verifyRoot', {deviceID: info.serial});
+        setRootProof({...proof, serial: info.serial});
+        const latest = await window.goAPI.call('sessionState', {});
+        setSession(latest.session || active);
+        setPreflight(null); // Initial-root preflight is not a post-root health check.
+      } else {
+        setPreflight(await window.goAPI.call('preflight', {}));
+      }
+      setDatabase(await window.goAPI.call('databasePlan', {}));
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
   }, [refresh, say]);
 
-  const currentRank = session ? (STAGE_RANK[session.stage] ?? -1) : -1;
+  useEffect(() => {
+    if (initialCheckStarted.current) return; // React development StrictMode replays effects.
+    initialCheckStarted.current = true;
+    checkConnection();
+  }, [checkConnection]);
+  const onNewRun = async () => {
+    if (!matchesDevice(session, device) || device.rooted) return;
+    if (!window.confirm('Start a NEW initial-root PoC after FULL STOCK RESTORE? The bootloader must remain unlocked and su must be absent. Old local session evidence will be archived. This does NOT restore, wipe or flash the phone.')) return;
+    try {
+      const res = await run('Archive old evidence and start new run', 'beginNewRun', {serial: device.serial, confirmNewRun: true});
+      setSession(res.session); setJob(null); setRootProof(null); setPreflight(null); setApproved(false); setFlashCmd(''); setPatchPath('');
+      say(res.message);
+      if (res.archivedSession) say(`Previous session preserved: ${res.archivedSession}`);
+      await checkConnection();
+    } catch { /* already displayed */ }
+  };
+  const onVerifyRoot = async () => {
+    setRootProof(null);
+    try {
+      const info = await refresh();
+      if (!matchesDevice(session, info)) throw new Error('Reconnect and authorize the phone belonging to this session.');
+      const res = await run('Verify actual root', 'verifyRoot', {deviceID: info.serial});
+      setRootProof({...res, serial: info.serial});
+      say(res.message);
+      const saved = await window.goAPI.call('sessionState', {});
+      setSession(saved.session || null);
+      setApproved(false); setPreflight(null);
+    } catch (err) { setError(err.message); }
+  };
 
   const onValidateFirmware = async () => {
     // A local file is required; the app never picks a package by name alone.
@@ -95,7 +146,7 @@ function App() {
       say('No file selected.');
       return;
     }
-    const res = await run('Validate firmware', 'adoptFirmware', {
+    const res = await runJob('Validate firmware', 'adoptFirmware', {
       archivePath: picked,
     });
     if (res.ok) {
@@ -105,29 +156,6 @@ function App() {
       (res.errors || []).forEach((e) => say(`  ✗ ${e}`));
     }
     setPreflight(await window.goAPI.call('preflight', {}));
-  };
-
-  const onDryRunDownload = async () => {
-    if (!downloadUrl.trim()) {
-      setError('Enter a firmware URL first.');
-      return;
-    }
-    const res = await run('Plan download', 'fetchFirmware', {
-      url: downloadUrl.trim(),
-      filename: downloadUrl.trim().split('/').pop(),
-      dryRun: true,
-    });
-    say(res.message);
-  };
-
-  const onDownload = async () => {
-    if (!downloadUrl.trim()) return;
-    const res = await run('Download firmware', 'fetchFirmware', {
-      url: downloadUrl.trim(),
-      filename: downloadUrl.trim().split('/').pop(),
-      dryRun: false,
-    });
-    say(res.message || `Downloaded to ${res.path}`);
   };
 
   const onDryRun = async () => {
@@ -148,8 +176,7 @@ function App() {
       say('Approval declined.');
       return;
     }
-    const res = await run('Approve flash', 'approveFlash', { by: 'operator' });
-    setSession({ ...session, stage: res.stage, approval: true });
+    await runJob('Approve flash', 'approveFlash', { by: 'operator' });
     setApproved(true);
     say('Flash approved. You can now inspect the exact command.');
   };
@@ -162,270 +189,48 @@ function App() {
     say('Flash plan built. Nothing has been flashed.');
   };
 
-  const blockers = preflight?.blockers || [];
+  const onProbeEngine = async () => {
+    if (!window.confirm('Reboot this phone into Download Mode for a READ-ONLY identity/PIT probe? No partitions will be flashed. You must restart the phone manually afterwards.')) return;
+    try { const res = await runJob('Probe engine without flashing', 'probeEngine', {confirmReboot: true}); say(res.message); if (res.needsBinding) setDownloadIdentity(res); }
+    catch { /* error is already shown */ }
+  };
 
-  return (
-    <div style={S.page}>
-      <header style={S.header}>
-        <h1 style={S.title}>AutoRoot</h1>
-        <p style={S.subtitle}>
-          Samsung Galaxy A06 (SM-A065F) · every destructive step is gated
-        </p>
-      </header>
+  const onExecuteFlash = async () => {
+    if (!window.confirm(`FINAL CONFIRMATION: flash ${session?.model} / ${session?.serial} with the approved files? This WILL WIPE DATA. Do not disconnect USB or close the app during flashing.`)) return;
+    try { const res = await runJob('Flash approved firmware', 'executeFlash', {confirmWipe: true}); say(res.message); setApproved(false); setDevice(null); setRootProof(null); setPreflight(null); }
+    catch { /* no automatic retry */ }
+  };
 
-      {error && <div style={S.error}>{error}</div>}
-
-      {device ? (
-        <div style={S.grid}>
-          <div style={S.card}>
-            <h2 style={S.h2}>Device</h2>
-            <dl style={S.dl}>
-              <dt>Model</dt><dd>{device.model}</dd>
-              <dt>Serial</dt><dd>{device.serial}</dd>
-              <dt>Android</dt><dd>{device.androidVersion}</dd>
-              <dt>Build</dt><dd>{device.buildVersion}</dd>
-              <dt>CSC</dt><dd>{device.salesCode || 'unknown'}</dd>
-              <dt>Bootloader binary</dt><dd>{device.binaryBit}</dd>
-              <dt>Bootloader</dt>
-              <dd>{device.bootloaderLocked ? 'LOCKED' : 'unlocked'}</dd>
-              <dt>Verified boot</dt><dd>{device.verifiedBootState}</dd>
-              <dt>Root</dt><dd>{device.rooted ? 'active' : 'not active'}</dd>
-            </dl>
-          </div>
-
-          <div style={S.card}>
-            <h2 style={S.h2}>Flashing engine</h2>
-            {engine?.available ? (
-              <p style={S.ok}>
-                samloader {engine.version} verified
-                <br />
-                <code style={S.code}>{engine.path}</code>
-              </p>
-            ) : (
-              <p style={S.bad}>
-                Not ready
-                <br />
-                <span style={S.small}>{engine?.reason || 'unknown'}</span>
-              </p>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div style={S.card}>
-          <h2 style={S.h2}>No device</h2>
-          <p style={S.muted}>
-            Connect the phone over USB and accept the USB debugging prompt. The
-            phone must show as <code>device</code>, not <code>unauthorized</code>.
-          </p>
-          <button style={S.secondary} onClick={refresh}>Check again</button>
-        </div>
-      )}
-
-      {session && (
-        <div style={S.card}>
-          <h2 style={S.h2}>Progress</h2>
-          <ol style={S.stages}>
-            {STAGES.map((s) => {
-              const done = (STAGE_RANK[session.stage] ?? -1) >= STAGE_RANK[s.key];
-              return (
-                <li key={s.key} style={done ? S.stageDone : S.stageTodo}>
-                  {done ? '✓' : '○'} {s.label}
-                </li>
-              );
-            })}
-          </ol>
-        </div>
-      )}
-
-      <div style={S.card}>
-        <h2 style={S.h2}>Firmware</h2>
-        <p style={S.muted}>
-          Packages download straight to the D: volume and are validated before
-          anything else can use them. Validation checks the model, the sales
-          code, anti-rollback, ZIP integrity and every internal MD5.
-        </p>
-        <div style={S.row}>
-          <button style={S.primary} disabled={busy} onClick={onValidateFirmware}>
-            Choose a local .zip and validate
-          </button>
-        </div>
-        <div style={S.row}>
-          <input
-            style={S.input}
-            placeholder="Firmware URL (Samsung FUS link)"
-            value={downloadUrl}
-            onChange={(e) => setDownloadUrl(e.target.value)}
-          />
-        </div>
-        <div style={S.row}>
-          <button style={S.secondary} disabled={busy} onClick={onDryRunDownload}>
-            Check download (dry run)
-          </button>
-          <button style={S.secondary} disabled={busy} onClick={onDownload}>
-            Download
-          </button>
-        </div>
-      </div>
-
-      <div style={S.card}>
-        <h2 style={S.h2}>Preflight</h2>
-        {preflight ? (
-          <>
-            <ul style={S.checks}>
-              {(preflight.checks || []).map((c) => (
-                <li key={c.id} style={c.passed ? S.checkOk : S.checkBad}>
-                  {c.passed ? '✓' : '✗'} {c.label}
-                  {c.detail ? <span style={S.small}> — {c.detail}</span> : null}
-                </li>
-              ))}
-            </ul>
-            <p style={preflight.ok ? S.ok : S.bad}>{preflight.summary}</p>
-          </>
-        ) : (
-          <p style={S.muted}>Run a preflight to see what is still missing.</p>
-        )}
-        <div style={S.row}>
-          <button style={S.secondary} disabled={busy} onClick={onDryRun}>
-            Run dry run
-          </button>
-          <button
-            style={S.secondary}
-            disabled={busy}
-            onClick={() => run('Preflight', 'preflight', {}).then(setPreflight)}
-          >
-            Refresh preflight
-          </button>
-        </div>
-      </div>
-
-      <div style={S.card}>
-        <h2 style={S.h2}>Flash</h2>
-        {blockers.length > 0 && (
-          <p style={S.bad}>
-            {blockers.length} requirement(s) are still unmet, so flashing stays
-            locked.
-          </p>
-        )}
-        <div style={S.row}>
-          <button
-            style={S.danger}
-            disabled={busy || !approved}
-            onClick={onApprove}
-          >
-            Approve flashing
-          </button>
-          <button
-            style={S.secondary}
-            disabled={busy || !approved}
-            onClick={onBuildPlan}
-          >
-            Show the exact command
-          </button>
-        </div>
-        {flashCmd && (
-          <pre style={S.pre}>{flashCmd}</pre>
-        )}
-        <p style={S.muted}>
-          AutoRoot will not flash on its own. Approval is recorded in the saved
-          session, so a restart does not silently re-arm it.
-        </p>
-      </div>
-
-      <div style={S.card}>
-        <h2 style={S.h2}>Log</h2>
-        <pre style={S.pre}>{log.join('\n') || 'No activity yet.'}</pre>
-      </div>
-    </div>
-  );
+  const onBind = async () => {
+    if (!downloadIdentity || !window.confirm(`Pair ${downloadIdentity.model}: ADB ${downloadIdentity.adbSerial} → Download Mode ${downloadIdentity.downloadSerial}? Confirm only this phone is connected. No flashing.`)) return;
+    try {
+      const res = await runJob('Bind identity and read PIT', 'bindDownloadDevice', {confirmOnlyDevice: true, downloadSerial: downloadIdentity.downloadSerial});
+      say(res.message); setDownloadIdentity(null);
+    } catch { /* already displayed */ }
+  };
+  const safely = (action) => () => Promise.resolve().then(action).catch(err => setError(err.message));
+  return <WorkbenchView
+    {...{device, session, busy, error, rootProof, preflight, engine, database, job, log, approved, flashCmd, patchPath, downloadIdentity, activeTab}}
+    onTab={setActiveTab}
+    actions={{
+      reconnect: safely(checkConnection), verify: safely(onVerifyRoot), newRun: safely(onNewRun),
+      database: safely(() => runJob('Prepare firmware from database', 'prepareDatabase')),
+      localFirmware: safely(onValidateFirmware),
+      preparePatch: safely(() => runJob('Install Magisk and transfer AP', 'preparePatch').then(res => say(res.message))),
+      autoPatch: safely(() => runJob('Automate Magisk patch and collect output', 'automateMagiskPatch')),
+      patchPath: setPatchPath,
+      collect: safely(() => runJob('Pull and validate new patch', 'collectPatch', {remotePath: patchPath})),
+      probe: safely(onProbeEngine), bind: safely(onBind),
+      diagnose: safely(() => run('Engine launch diagnostic (--version only)', 'diagnoseEngineLaunch').then(res => say(JSON.stringify(res, null, 2)))),
+      recover: safely(async () => {
+        if (!window.confirm('Recover ONLY a proven engine launch failure before any flash? The failed session will be archived, files/device rechecked and old approval revoked. No reboot or flash.')) return;
+        const res = await runJob('Recover proven pre-launch failure', 'recoverEngineLaunch', {confirmRecovery: true, serial: device?.serial});
+        say(res.message); if (res.archivedSession) say(`Failure evidence: ${res.archivedSession}`);
+      }),
+      preflight: safely(() => run('Preflight', 'preflight').then(setPreflight)),
+      dryRun: safely(onDryRun), approve: safely(onApprove), plan: safely(onBuildPlan), flash: safely(onExecuteFlash),
+    }}
+  />;
 }
-
-const S = {
-  page: {
-    minHeight: '100vh',
-    background: '#0b1220',
-    color: '#e6edf7',
-    fontFamily: 'system-ui, sans-serif',
-    padding: '2rem 1rem 4rem',
-    maxWidth: 900,
-    margin: '0 auto',
-  },
-  header: { marginBottom: '1.5rem' },
-  title: { fontSize: '2rem', fontWeight: 700, margin: 0 },
-  subtitle: { color: '#93a4bd', margin: '0.25rem 0 0', fontSize: '0.95rem' },
-  card: {
-    background: '#131c2e',
-    border: '1px solid #22304a',
-    borderRadius: 12,
-    padding: '1.25rem',
-    marginBottom: '1rem',
-  },
-  h2: { fontSize: '1.1rem', margin: '0 0 0.75rem', color: '#cdd9ea' },
-  grid: { display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' },
-  dl: { display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.35rem 1rem', margin: 0, fontSize: '0.9rem' },
-  stages: { margin: 0, paddingLeft: '1.2rem', lineHeight: 1.9, fontSize: '0.95rem' },
-  checks: { margin: 0, paddingLeft: 0, listStyle: 'none', lineHeight: 1.8, fontSize: '0.9rem' },
-  row: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' },
-  input: {
-    flex: '1 1 320px',
-    padding: '0.6rem 0.75rem',
-    background: '#0b1220',
-    border: '1px solid #2c3d5c',
-    borderRadius: 8,
-    color: '#e6edf7',
-  },
-  primary: {
-    padding: '0.7rem 1.1rem',
-    background: '#2563eb',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 8,
-    cursor: 'pointer',
-    fontWeight: 600,
-  },
-  secondary: {
-    padding: '0.6rem 1rem',
-    background: 'transparent',
-    color: '#cdd9ea',
-    border: '1px solid #3a4d70',
-    borderRadius: 8,
-    cursor: 'pointer',
-  },
-  danger: {
-    padding: '0.6rem 1rem',
-    background: '#b91c1c',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 8,
-    cursor: 'pointer',
-    fontWeight: 600,
-  },
-  pre: {
-    background: '#0b1220',
-    border: '1px solid #22304a',
-    borderRadius: 8,
-    padding: '0.75rem',
-    overflowX: 'auto',
-    fontSize: '0.8rem',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-all',
-  },
-  ok: { color: '#34d399' },
-  bad: { color: '#f87171' },
-  muted: { color: '#93a4bd', fontSize: '0.9rem', lineHeight: 1.6 },
-  small: { color: '#7c8ba5', fontSize: '0.82rem' },
-  code: { color: '#7dd3fc', fontSize: '0.82rem' },
-  error: {
-    background: '#3b1418',
-    border: '1px solid #7f1d1d',
-    color: '#fca5a5',
-    padding: '0.75rem 1rem',
-    borderRadius: 8,
-    marginBottom: '1rem',
-  },
-  stageDone: { color: '#34d399' },
-  stageTodo: { color: '#64748b' },
-  checkOk: { color: '#34d399' },
-  checkBad: { color: '#f87171' },
-};
 
 export default App;

@@ -15,6 +15,17 @@ func blockerFor(report *PreflightReport, id string) *PreflightCheck {
 	return nil
 }
 
+func TestBatteryParserFailsClosed(t *testing.T) {
+	if n, err := batteryLevel("Current Battery Service state:\n  level: 89\n  scale: 100\n"); err != nil || n != 89 {
+		t.Fatal(n, err)
+	}
+	for _, input := range []string{"", "level: -1", "level: 150"} {
+		if _, err := batteryLevel(input); err == nil {
+			t.Fatal("invalid battery accepted")
+		}
+	}
+}
+
 func TestPreflightBlocksWithoutDevice(t *testing.T) {
 	withTempState(t)
 	// No session and, in the test environment, no guaranteed device. Whatever
@@ -52,7 +63,7 @@ func TestPreflightNeverPassesWithoutApproval(t *testing.T) {
 	withTempState(t)
 	// Even with a fully populated session, the flash itself stays locked
 	// behind RequireApproval, which BuildFlashPlan enforces.
-	s := NewSession("R9RY100N48L", "SM-A065F", "XID", "4")
+	s := NewSession("TEST-DEVICE-001", "SM-A065F", "XID", "4")
 	if err := s.RequireApproval(); err == nil {
 		t.Fatal("a fresh session must not be approved")
 	}
@@ -69,7 +80,7 @@ func TestDryRunNeverFlashes(t *testing.T) {
 	withTempState(t)
 	useFakeEngine(t)
 
-	s := NewSession("R9RY100N48L", "SM-A065F", "XID", "4")
+	s := NewSession("TEST-DEVICE-001", "SM-A065F", "XID", "4")
 	_ = s.Save()
 
 	// A dry run with nothing prepared must fail cleanly and never claim success.
@@ -87,7 +98,7 @@ func TestDryRunNeverFlashes(t *testing.T) {
 
 func TestPackageFromSessionRequiresPatchedAP(t *testing.T) {
 	withTempState(t)
-	s := NewSession("R9RY100N48L", "SM-A065F", "XID", "4")
+	s := NewSession("TEST-DEVICE-001", "SM-A065F", "XID", "4")
 	_ = s.Save()
 
 	if _, errStr := packageFromSession(s); errStr == "" {
@@ -103,7 +114,7 @@ func TestPackageFromSessionReplacesStockAP(t *testing.T) {
 	stock := writeFakeSlotFiles(t, dir, "CSC_A065FXXS4AYE2_A065FOLE4AYE2_x.tar.md5")
 	patched := filepath.Join(dir, "magisk_patched_A065FXXS4AYE2.tar")
 
-	s := NewSession("R9RY100N48L", "SM-A065F", "XID", "4")
+	s := NewSession("TEST-DEVICE-001", "SM-A065F", "XID", "4")
 	for slot, path := range stock {
 		s.SetArtifact("slot-"+string(slot), path)
 	}

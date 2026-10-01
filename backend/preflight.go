@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -65,6 +67,9 @@ func RunPreflight(session *Session) *PreflightReport {
 	// device can never be continued here.
 	serial, _ := device["serial"].(string)
 	model, _ := device["model"].(string)
+	battery, _, batteryErr := runAdb("-s", serial, "shell", "dumpsys", "battery")
+	level, levelErr := batteryLevel(battery)
+	add(PreflightCheck{ID: "battery", Label: "Battery meets AutoRoot's conservative 60% threshold", Passed: batteryErr == nil && levelErr == nil && level >= 60, Required: true, Detail: fmt.Sprintf("level=%d; unreadable battery status blocks flashing", level)})
 	if session == nil {
 		add(PreflightCheck{ID: "session", Label: "A workflow session exists for this phone",
 			Passed: false, Required: true, Detail: "no session has been started"})
@@ -76,6 +81,10 @@ func RunPreflight(session *Session) *PreflightReport {
 	} else {
 		add(PreflightCheck{ID: "session", Label: "A workflow session exists for this phone",
 			Passed: true, Required: true, Detail: "session " + string(session.Stage)})
+		build, _ := device["buildVersion"].(string)
+		cscBuild, _ := device["cscBuild"].(string)
+		csc, _ := device["salesCode"].(string)
+		add(PreflightCheck{ID: "current-build", Label: "Current PDA, OMC and CSC still match validated session", Passed: build != "" && build == session.Provenance["deviceBuild"] && cscBuild != "" && cscBuild == session.Provenance["deviceCSCBuild"] && csc == session.CSC, Required: true})
 	}
 
 	// 3. Bootloader must be unlocked. A locked bootloader cannot accept
@@ -103,6 +112,12 @@ func RunPreflight(session *Session) *PreflightReport {
 	}
 
 	// 5. A validated firmware package must already exist on disk.
+	if session == nil {
+		return finalizePreflight(report)
+	}
+	add(PreflightCheck{ID: "validator-version", Label: "Real Samsung embedded-MD5 validator was used", Passed: session.Provenance["validatorVersion"] == "embedded-md5-v1", Required: true})
+	add(PreflightCheck{ID: "validated-stage", Label: "Firmware and patch completed validation", Passed: session.Reached(StagePatchedAP), Required: true})
+	add(PreflightCheck{ID: "csc-proof", Label: "Installed OMC build matches validated CSC", Passed: session.Provenance["deviceCSCBuild"] != "" && strings.Contains(upperBase(session.Artifact("slot-CSC")), strings.ToUpper(session.Provenance["deviceCSCBuild"])+"_"), Required: true})
 	archive := session.Artifact("firmwareArchive")
 	if strings.TrimSpace(archive) == "" {
 		add(PreflightCheck{ID: "firmware", Label: "A validated firmware package is present",
@@ -132,6 +147,14 @@ func RunPreflight(session *Session) *PreflightReport {
 		}
 		add(PreflightCheck{ID: "slot-" + string(slot), Label: label, Passed: true, Required: true,
 			Detail: formatSize(st.Size())})
+		if slot != SlotAP {
+			e := verifyEmbeddedMD5(path)
+			detail := "embedded MD5 verified again before flash"
+			if e != nil {
+				detail = e.Error()
+			}
+			add(PreflightCheck{ID: "integrity-" + string(slot), Label: string(slot) + " embedded MD5 still matches", Passed: e == nil, Required: true, Detail: detail})
+		}
 	}
 
 	// 7. The AP that will actually be flashed must be the Magisk-patched one.
@@ -147,6 +170,8 @@ func RunPreflight(session *Session) *PreflightReport {
 	} else {
 		add(PreflightCheck{ID: "patched", Label: "The AP is Magisk-patched",
 			Passed: true, Required: true, Detail: formatSize(st.Size())})
+		sum, e := FileSHA256(patched)
+		add(PreflightCheck{ID: "patch-integrity", Label: "Patched AP still matches its recorded SHA-256", Passed: e == nil && len(session.Provenance["patchedAPSHA256"]) == 64 && sum == session.Provenance["patchedAPSHA256"], Required: true})
 	}
 
 	// 8. The flashing engine must be installed and checksum-verified.
@@ -179,6 +204,18 @@ func RunPreflight(session *Session) *PreflightReport {
 	}
 
 	return finalizePreflight(report)
+}
+
+func batteryLevel(data string) (int, error) {
+	m := regexp.MustCompile(`(?m)^\s*level:\s*([0-9]+)\s*$`).FindStringSubmatch(data)
+	if len(m) != 2 {
+		return 0, fmt.Errorf("battery level missing")
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n < 0 || n > 100 {
+		return 0, fmt.Errorf("invalid battery level")
+	}
+	return n, nil
 }
 
 func finalizePreflight(report *PreflightReport) *PreflightReport {

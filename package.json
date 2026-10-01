@@ -1,13 +1,16 @@
 {
     "name": "autoroot",
     "version": "1.0.0",
-    "description": "Offline desktop app for AutoRoot",
+    "description": "Guarded Samsung SM-A065F rooting source PoC",
     "author": "Your Name",
     "main": "electron/main.js",
     "scripts": {
         "dev:frontend": "cd frontend && npm run dev",
         "dev:electron": "wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .",
         "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:electron\"",
+        "build:poc": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-poc.ps1",
+        "test:poc-ui": "powershell -NoProfile -File scripts/test-ui.ps1",
+        "poc": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-poc.ps1",
         "build:frontend": "cd frontend && npm run build",
         "build:backend:win": "cd backend && cross-env GOOS=windows GOARCH=amd64 go build -o ../bin/myapp-go.exe",
         "build:backend:mac": "cd backend && cross-env GOOS=darwin GOARCH=amd64 go build -o ../bin/myapp-go",

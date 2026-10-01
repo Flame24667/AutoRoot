@@ -56,7 +56,7 @@ func useFakeEngine(t *testing.T) {
 func approvedSession(t *testing.T) *Session {
 	t.Helper()
 	withTempState(t)
-	s := NewSession("R9RY100N48L", "SM-A065F", "XID", "4")
+	s := NewSession("TEST-DEVICE-001", "SM-A065F", "XID", "4")
 	if err := s.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestBuildFlashPlanRefusesWithoutApproval(t *testing.T) {
 	withTempState(t)
 	files := writeFakeSlotFiles(t, t.TempDir(), "CSC_A065FXXS4AYE2_A065FOLE4AYE2_20240401.tar.md5")
 
-	s := NewSession("R9RY100N48L", "SM-A065F", "XID", "4")
+	s := NewSession("TEST-DEVICE-001", "SM-A065F", "XID", "4")
 	_ = s.Save()
 
 	_, err := BuildFlashPlan(files, "initial-root", s)

@@ -2,9 +2,6 @@ package main
 
 import (
 	"archive/zip"
-	"bytes"
-	"crypto/md5"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,16 +31,7 @@ func buildFirmwareZip(t *testing.T, dir string, members map[string]string) strin
 	for name, payload := range members {
 		var data []byte
 		if strings.HasSuffix(name, ".tar.md5") {
-			sum := md5.Sum([]byte(payload))
-			// Pad the .tar to a plausible multi-hundred-MB scale is unnecessary;
-			// the .md5 content itself must simply be large enough to pass the
-			// size floor, so pad the payload instead.
-			big := payload + strings.Repeat("0", 2048)
-			sum = md5.Sum([]byte(big))
-			data = []byte(hex.EncodeToString(sum[:]) + "  " + name)
-			if err := writeZipEntry(zw, strings.TrimSuffix(name, ".md5"), []byte(big)); err != nil {
-				t.Fatal(err)
-			}
+			data = samsungTarFixture(t, name)
 		} else {
 			data = []byte(payload)
 		}
@@ -180,12 +168,7 @@ func buildFirmwareZipNamed(t *testing.T, dir, name string, members map[string]st
 	for member, payload := range members {
 		var data []byte
 		if strings.HasSuffix(member, ".tar.md5") {
-			big := payload + strings.Repeat("0", 2048)
-			sum := md5.Sum([]byte(big))
-			data = []byte(hex.EncodeToString(sum[:]) + "  " + member)
-			if err := writeZipEntry(zw, strings.TrimSuffix(member, ".md5"), []byte(big)); err != nil {
-				t.Fatal(err)
-			}
+			data = samsungTarFixture(t, member)
 		} else {
 			data = []byte(payload)
 		}
@@ -213,7 +196,7 @@ func TestValidateRejectsCorruptedMD5(t *testing.T) {
 	if !v.OK {
 		t.Fatalf("baseline package should be valid, got %v", v.Errors)
 	}
-	apTar := strings.TrimSuffix(v.Sizes[SlotAP].Path, ".md5")
+	apTar := v.Sizes[SlotAP].Path
 	apInfo, err := os.Stat(apTar)
 	if err != nil {
 		t.Fatal(err)
@@ -221,7 +204,15 @@ func TestValidateRejectsCorruptedMD5(t *testing.T) {
 	// Corrupt in place, preserving the byte count: this is the realistic
 	// failure mode (a flipped sector, a resumed download stitched together
 	// wrongly) and the one the size check cannot mask.
-	if err := os.WriteFile(apTar, bytes.Repeat([]byte("Z"), int(apInfo.Size())), 0o644); err != nil {
+	data, err := os.ReadFile(apTar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data[600] ^= 1
+	if int64(len(data)) != apInfo.Size() {
+		t.Fatal("fixture size changed")
+	}
+	if err := os.WriteFile(apTar, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -286,7 +277,7 @@ func TestBinaryFromName(t *testing.T) {
 		"AP_A065FXXS4AYE2_A065FOLE4AYE2_26021ABC_20240401.zip": "4",
 		"AP_A065FXXS5AYE2_A065FOLE4AYE2_26021ABC_20240401.zip": "5",
 		"BL_A065FXXSAYH2_A065FXXSAYH1_26021ABC_20240401.zip":   "A",
-		"nonsense.zip":                                          "",
+		"nonsense.zip": "",
 	}
 	for name, want := range cases {
 		if got := binaryFromName(name); got != want {

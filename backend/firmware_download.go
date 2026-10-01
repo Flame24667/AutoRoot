@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 type FirmwareInfo struct {
@@ -170,7 +169,7 @@ func listAvailableFirmware(payload interface{}) (interface{}, string) {
 	var available []FirmwareInfo
 	for _, device := range db.Devices {
 		deviceCode := modelCodeOf(device.Model)
-		if deviceCode == "" || (deviceCode != wantCode && !strings.HasPrefix(wantCode, deviceCode)) {
+		if deviceCode == "" || deviceCode != wantCode {
 			continue
 		}
 		for _, fw := range device.Firmware {

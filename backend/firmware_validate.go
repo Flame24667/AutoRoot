@@ -31,7 +31,7 @@ import (
 // engine has no lookahead, so the model/binary split is done by hand in
 // splitBuildSegment below, which is both exact and easier to audit.
 var (
-	samsungBuildSegment = regexp.MustCompile(`(?i)^[A-Z]\d{3}[A-Z][A-Z0-9]{0,3}(XX|UU|UB|UA)[A-Z][0-9A-Z][A-Z0-9]`)
+	samsungBuildSegment = regexp.MustCompile(`(?i)^[A-Z]\d{3}[A-Z][A-Z0-9]{0,3}(XX|UU|UB|UA)[A-Z][0-9A-Z][A-Z0-9]|^[A-Z]\d{3}[A-Z]OLE[0-9A-Z][A-Z0-9]{4}$`)
 
 	// A bare model code: a letter, three digits and a letter, e.g. "A065F" or
 	// the regional variant "A065FD". Anchored so splitBuildSegment can test
@@ -72,6 +72,7 @@ var RequiredSlots = []Slot{SlotAP, SlotBL, SlotCP, SlotCSC}
 type FirmwareProfile struct {
 	Model        string
 	CSC          string
+	CSCBuild     string // exact installed OMC build, not a guessed multi-CSC mapping
 	DeviceBinary string // current bootloader binary revision, e.g. "4"
 }
 
@@ -129,6 +130,9 @@ func samsungBuildSegments(name string) []string {
 // revision is the single character following the two-letter branch marker.
 func splitBuildSegment(token string) (model, binary string) {
 	token = strings.ToUpper(token)
+	if len(token) == 13 && token[5:8] == "OLE" {
+		return token[:5], string(token[8])
+	}
 	if !samsungBuildSegment.MatchString(token) {
 		return "", ""
 	}
@@ -267,6 +271,10 @@ func zipIntegrity(path string) error {
 // internalMD5 reads the hex digest that a Samsung .tar.md5 file carries in its
 // first line, e.g. "1a2b3c...  AP_....tar.md5".
 func internalMD5(tarMD5Path string) (string, error) {
+	if info, err := os.Stat(tarMD5Path); err == nil && info.Size() > 4096 {
+		digest, _, err := embeddedMD5(tarMD5Path)
+		return digest, err
+	}
 	data, err := os.ReadFile(tarMD5Path)
 	if err != nil {
 		return "", err
@@ -303,20 +311,10 @@ func actualMD5(tarPath string) (string, error) {
 
 // verifyTarMD5 checks one .tar.md5 against its .tar sibling.
 func verifyTarMD5(tarMD5Path string) error {
-	want, err := internalMD5(tarMD5Path)
-	if err != nil {
-		return err
+	if info, err := os.Stat(tarMD5Path); err == nil && info.Size() > 4096 {
+		return verifyEmbeddedMD5(tarMD5Path)
 	}
-	tarPath := strings.TrimSuffix(tarMD5Path, ".md5")
-	got, err := actualMD5(tarPath)
-	if err != nil {
-		return fmt.Errorf("cannot hash %s: %w", filepath.Base(tarPath), err)
-	}
-	if want != got {
-		return fmt.Errorf("md5 mismatch for %s (declared %s, actual %s)",
-			filepath.Base(tarPath), want, got)
-	}
-	return nil
+	return fmt.Errorf("invalid Samsung package: a text MD5 sidecar is not a flashable TAR")
 }
 
 // slotOf classifies a firmware member by its filename prefix.
@@ -372,7 +370,7 @@ func ValidateFirmwareArchive(archivePath string, profile FirmwareProfile, extrac
 	if wantCode != "" {
 		archiveModel := samsungModelFromName(archivePath)
 		if archiveModel == "" {
-			v.fail("cannot determine the model from the archive name %q", filepath.Base(archivePath))
+			v.warn("archive name has no build token; model and binary will be verified from its members")
 		} else if archiveModel != wantCode {
 			v.fail("model mismatch: archive is for %s but the phone is %s", archiveModel, wantCode)
 		} else {
@@ -382,7 +380,7 @@ func ValidateFirmwareArchive(archivePath string, profile FirmwareProfile, extrac
 		// Anti-rollback: never accept a package older than the running binary.
 		archiveBinary := binaryFromName(archivePath)
 		if archiveBinary == "" {
-			v.fail("cannot determine the bootloader binary revision from %q", filepath.Base(archivePath))
+			// Vendor archive names need not carry a build; members below are authoritative.
 		} else {
 			v.PkgBinary = archiveBinary
 			deviceBinary := strings.ToUpper(strings.TrimSpace(profile.DeviceBinary))
@@ -397,8 +395,7 @@ func ValidateFirmwareArchive(archivePath string, profile FirmwareProfile, extrac
 		}
 	}
 
-	if err := zipIntegrity(archivePath); err != nil {
-		v.fail("zip integrity check failed: %v", err)
+	if len(v.Errors) > 0 {
 		return v
 	}
 
@@ -415,6 +412,7 @@ func ValidateFirmwareArchive(archivePath string, profile FirmwareProfile, extrac
 	defer r.Close()
 
 	for _, f := range r.File {
+		updateJobProgress("Inspect ZIP member: "+f.Name, 0, 1)
 		if f.FileInfo().IsDir() {
 			continue
 		}
@@ -423,11 +421,23 @@ func ValidateFirmwareArchive(archivePath string, profile FirmwareProfile, extrac
 			continue
 		}
 		dest := filepath.Join(extractDir, filepath.Base(f.Name))
+		if !strings.HasSuffix(strings.ToUpper(f.Name), ".TAR.MD5") {
+			if st, err := os.Stat(dest); err != nil || st.Size() != int64(f.UncompressedSize64) {
+				if err := extractOne(f, dest); err != nil {
+					v.fail("extract: %v", err)
+					return v
+				}
+			}
+			continue
+		}
 		// Reuse a previously extracted member when it is still byte-complete.
 		// Re-extracting unconditionally would overwrite a tampered payload and
 		// silently "fix" the very corruption this check exists to catch, and it
 		// would re-read 5.8 GB on every validation pass.
 		if st, err := os.Stat(dest); err == nil && st.Size() == int64(f.UncompressedSize64) {
+			if slot == SlotCSC && strings.HasPrefix(upperBase(f.Name), "HOME_CSC_") && strings.HasPrefix(upperBase(v.Sizes[slot].FileName), "CSC_") {
+				continue
+			}
 			v.Sizes[slot] = SlotFile{
 				Slot:     slot,
 				Path:     dest,
@@ -444,6 +454,9 @@ func ValidateFirmwareArchive(archivePath string, profile FirmwareProfile, extrac
 		if err != nil {
 			v.fail("extracted %s is missing: %v", f.Name, err)
 			return v
+		}
+		if slot == SlotCSC && strings.HasPrefix(upperBase(f.Name), "HOME_CSC_") && strings.HasPrefix(upperBase(v.Sizes[slot].FileName), "CSC_") {
+			continue
 		}
 		v.Sizes[slot] = SlotFile{
 			Slot:     slot,
@@ -470,10 +483,7 @@ func ValidateFirmwareArchive(archivePath string, profile FirmwareProfile, extrac
 			v.fail("%s member %s is not a .tar.md5 package", slot, sf.FileName)
 			continue
 		}
-		// A .tar.md5 is a ~100-byte text file carrying one digest line, so the
-		// meaningful size check belongs on the .tar it references, not here.
-		// verifyTarMD5 below reads and hashes that .tar in full, which is what
-		// actually proves the payload arrived intact.
+		// Samsung .tar.md5 contains the TAR payload followed by its MD5 trailer.
 		if sf.Size < 32 {
 			v.fail("%s member %s is too small to contain an md5 digest (%d bytes)", slot, sf.FileName, sf.Size)
 		}
@@ -490,6 +500,17 @@ func ValidateFirmwareArchive(archivePath string, profile FirmwareProfile, extrac
 				v.fail("%s member %s does not encode a recognisable model code", slot, sf.FileName)
 			case memberModel != wantCode:
 				v.fail("%s member %s is built for %s but the phone is %s", slot, sf.FileName, memberModel, wantCode)
+			default:
+				v.ModelCode = memberModel
+				memberBinary := binaryFromName(sf.FileName)
+				if len(profile.DeviceBinary) != 1 || memberBinary == "" {
+					v.fail("unreadable device or member binary")
+				} else if compareRevisions(memberBinary, profile.DeviceBinary) < 0 {
+					v.fail("anti-rollback: %s binary %s is below %s", slot, memberBinary, profile.DeviceBinary)
+				}
+				if slot == SlotAP {
+					v.PkgBinary = memberBinary
+				}
 			}
 		}
 	}
@@ -497,7 +518,18 @@ func ValidateFirmwareArchive(archivePath string, profile FirmwareProfile, extrac
 	// Every extracted .tar.md5 must match its .tar, which proves the download
 	// was not truncated or corrupted in transit.
 	for _, sf := range v.Sizes {
-		if err := verifyTarMD5(sf.Path); err != nil {
+		var member *zip.File
+		for _, f := range r.File {
+			if filepath.Base(f.Name) == sf.FileName {
+				member = f
+				break
+			}
+		}
+		if member == nil {
+			v.fail("ZIP member missing: %s", sf.FileName)
+			continue
+		}
+		if err := verifyEmbeddedMD5(sf.Path, member.CRC32); err != nil {
 			v.fail("%s: %v", sf.FileName, err)
 		}
 	}
@@ -505,6 +537,9 @@ func ValidateFirmwareArchive(archivePath string, profile FirmwareProfile, extrac
 	// A single-CSC package must match the phone's sales code. Multi-CSC
 	// packages embed the supported codes and are accepted with a warning.
 	if profile.CSC != "" {
+		if profile.CSCBuild != "" && strings.Contains(upperBase(v.Sizes[SlotCSC].FileName), strings.ToUpper(profile.CSCBuild)+"_") {
+			v.CSCInPackage = strings.ToUpper(profile.CSC)
+		}
 		wantCSC := strings.ToUpper(strings.TrimSpace(profile.CSC))
 		if v.ModelCode != "" {
 			archiveName := strings.ToUpper(filepath.Base(archivePath))
@@ -514,7 +549,7 @@ func ValidateFirmwareArchive(archivePath string, profile FirmwareProfile, extrac
 				} else {
 					v.CSCInPackage = wantCSC
 				}
-			} else {
+			} else if v.CSCInPackage == "" {
 				v.warn("could not confirm %s is inside this package's CSC; verify manually before flashing", wantCSC)
 			}
 		}
@@ -540,14 +575,22 @@ func extractOne(f *zip.File, dest string) error {
 	}
 	defer rc.Close()
 
-	out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	out, err := os.CreateTemp(filepath.Dir(dest), ".extract-*.part")
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	part := out.Name()
+	defer os.Remove(part)
 
-	_, err = io.Copy(out, rc)
-	return err
+	_, err = io.Copy(out, &progressReader{reader: rc, total: int64(f.UncompressedSize64), detail: "Extract/CRC: " + f.Name})
+	closeErr := out.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(part, dest)
 }
 
 // formatSize renders a byte count for user-facing messages.

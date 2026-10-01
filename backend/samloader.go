@@ -108,7 +108,9 @@ func runSamloader(args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command(bin, args...)
+	ctx, cancel := engineContext()
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = toolsDir()
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -146,7 +148,9 @@ func DeviceDetect(wait bool, asJSON bool) (map[string]interface{}, error) {
 		args = append(args, "--json")
 	}
 
-	cmd := exec.Command(bin, args...)
+	ctx, cancel := engineContext()
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = toolsDir()
 	out, runErr := cmd.CombinedOutput()
 	result := map[string]interface{}{
@@ -228,7 +232,9 @@ func DumpPIT(destPath string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return "", err
 	}
-	out, runErr := exec.Command(bin, "dump-pit", "--output", destPath).CombinedOutput()
+	ctx, cancel := engineContext()
+	defer cancel()
+	out, runErr := exec.CommandContext(ctx, bin, "dump-pit", "--no-reboot", "--output", destPath).CombinedOutput()
 	return string(out), runErr
 }
 
@@ -338,7 +344,7 @@ func (p *FlashPlan) CommandLine() string {
 	quoted := make([]string, 0, len(p.Args)+1)
 	quoted = append(quoted, strconv.Quote(p.EnginePath))
 	for _, a := range p.Args {
-		quoted = append(quoted, a)
+		quoted = append(quoted, strconv.Quote(a))
 	}
 	return strings.Join(quoted, " ")
 }

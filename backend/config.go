@@ -3,15 +3,13 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
-// Workspace layout. Large artifacts (firmware, dumps, logs) must never land on
-// the system drive: the C: volume on the target machine is nearly full and
-// Samsung packages are ~5.8 GB, so a C: destination fails mid-download.
+// Keep large artifacts in an operator-selected volume or project firmware/;
+// no developer-specific absolute paths are embedded in the public source.
 const (
-	defaultFirmwareRoot = `D:\Data Kelola IT\Firmware`
+	defaultFirmwareRoot = "firmware"
 	defaultToolsRoot    = "tools"
 	stateDirName        = "state"
 	logDirName          = "logs"
@@ -19,11 +17,15 @@ const (
 )
 
 // envFirmwareRoot lets an operator override the firmware root without editing
-// code. It is validated to be an absolute, non-system-drive path.
+// code. Download preparation separately checks volume and space requirements.
 func envFirmwareRoot() string { return strings.TrimSpace(os.Getenv("AUTOROOT_FIRMWARE_ROOT")) }
 
 func isSystemDriveLetter(letter byte) bool {
-	return letter == 'C' || letter == 'D'
+	vol := strings.ToUpper(os.Getenv("SystemDrive"))
+	if vol == "" {
+		vol = "C:"
+	}
+	return strings.ToUpper(string(letter)) == vol[:1]
 }
 
 // sameVolumeRoot reports whether path sits on the Windows system drive, which
@@ -38,22 +40,23 @@ func onSystemDrive(path string) bool {
 }
 
 // resolveFirmwareRoot returns the directory that holds every firmware download.
-// Order of precedence: explicit override, then the packaged default, then a
-// development-tree fallback so tests and local runs still work.
+// Order of precedence: explicit override, the detected source project's
+// firmware folder, then a folder beside the executable.
 func resolveFirmwareRoot() string {
 	if override := envFirmwareRoot(); override != "" {
 		return filepath.Clean(override)
 	}
 
-	if runtime.GOOS == "windows" {
-		// The machine is provisioned with a real D: volume; prefer it whenever
-		// it is present and has enough headroom for a full package.
-		if volFreeOK(defaultFirmwareRoot) {
-			return defaultFirmwareRoot
+	cwd, _ := os.Getwd()
+	for _, root := range []string{cwd, filepath.Dir(appDir()), appDir()} {
+		if _, err := os.Stat(filepath.Join(root, "backend", "go.mod")); err == nil {
+			if _, err := os.Stat(filepath.Join(root, "frontend", "package.json")); err == nil {
+				return filepath.Join(root, defaultFirmwareRoot)
+			}
 		}
 	}
 
-	// Non-Windows or missing D: -> keep everything beside the executable.
+	// Packaged fallback: beside the executable; use an explicit volume override.
 	exeDir := appDir()
 	if exeDir != "" {
 		return filepath.Join(exeDir, "firmware")

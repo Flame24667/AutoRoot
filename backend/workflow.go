@@ -31,10 +31,15 @@ func startSession(payload interface{}) (interface{}, string) {
 	// from the beginning rather than continued.
 	if existing := LoadSession(); existing != nil && existing.MatchesDevice(serial, model) {
 		if existing.Stage == StageFailed {
-			if err := ClearSession(); err != nil {
-				return nil, fmt.Sprintf("cannot reset a failed session: %v", err)
-			}
+			return nil, "failed session retained; inspect its log and explicitly begin a new run after restoring stock"
 		} else {
+			if existing.Stage == StageDeviceCheck {
+				if err := existing.Advance(StageAdbAuthorized); err != nil {
+					return nil, err.Error()
+				}
+			}
+			// Keep the validated build provenance immutable on resume. A changed
+			// phone/build must not silently become the approved target.
 			if err := existing.Advance(StageDeviceCheck); err != nil && !strings.Contains(err.Error(), "intermediate") {
 				// A no-op re-entry is fine; a real error is not.
 				if !strings.Contains(err.Error(), "failed state") {
@@ -49,6 +54,9 @@ func startSession(payload interface{}) (interface{}, string) {
 			}, ""
 		}
 	}
+	if LoadSession() != nil {
+		return nil, "another saved phone/session exists; preserve and inspect it before starting a new run"
+	}
 
 	s := NewSession(serial, model, csc, binary)
 	if err := s.Save(); err != nil {
@@ -57,6 +65,11 @@ func startSession(payload interface{}) (interface{}, string) {
 	if err := s.Advance(StageDeviceCheck); err != nil {
 		return nil, err.Error()
 	}
+	if err := s.Advance(StageAdbAuthorized); err != nil {
+		return nil, err.Error()
+	}
+	s.SetProvenance("deviceBuild", fmt.Sprint(device["buildVersion"]))
+	s.SetProvenance("deviceCSCBuild", fmt.Sprint(device["cscBuild"]))
 	return map[string]interface{}{
 		"resumed": false,
 		"stage":   s.Stage,
@@ -85,6 +98,10 @@ func adoptFirmware(payload interface{}) (interface{}, string) {
 	if s.Stage == StageFailed {
 		return nil, fmt.Sprintf("the session failed (%s); start a new run", s.Failure)
 	}
+	if s.Stage != StageAdbAuthorized && s.Stage != StageFirmwareValid {
+		return nil, "firmware can only be adopted before patching; reset the session for a different firmware"
+	}
+	s.Approval = nil
 
 	// Extraction happens inside the device's own folder on the firmware volume,
 	// never on the system drive.
@@ -93,6 +110,7 @@ func adoptFirmware(payload interface{}) (interface{}, string) {
 		Model:        s.Model,
 		CSC:          s.CSC,
 		DeviceBinary: s.DeviceBinary,
+		CSCBuild:     s.Provenance["deviceCSCBuild"],
 	}, extractDir)
 
 	result := map[string]interface{}{
@@ -122,6 +140,7 @@ func adoptFirmware(payload interface{}) (interface{}, string) {
 	s.SetProvenance("modelCode", validation.ModelCode)
 	s.SetProvenance("packageBinary", validation.PkgBinary)
 	s.SetProvenance("validatedAt", time.Now().Format(time.RFC3339))
+	s.SetProvenance("validatorVersion", "embedded-md5-v1")
 
 	if err := s.Advance(StageFirmwareFound); err != nil {
 		return nil, err.Error()
@@ -208,11 +227,11 @@ func fetchFirmware(payload interface{}) (interface{}, string) {
 	s.SetProvenance("downloadSHA256", res.SHA256)
 
 	return map[string]interface{}{
-		"ok":      true,
-		"path":    res.Path,
-		"bytes":   res.Bytes,
-		"resumed": res.Resumed,
-		"sha256":  res.SHA256,
+		"ok":       true,
+		"path":     res.Path,
+		"bytes":    res.Bytes,
+		"resumed":  res.Resumed,
+		"sha256":   res.SHA256,
 		"verified": res.Verified,
 		"warnings": res.Warnings,
 		"duration": res.Duration.String(),
@@ -248,6 +267,12 @@ func recordPatchedAP(payload interface{}) (interface{}, string) {
 	if s == nil {
 		return nil, "start a session first"
 	}
+	if s.Stage != StageFirmwareValid {
+		return nil, "validate firmware before recording a new patch"
+	}
+	if err := inspectPatchedAP(path); err != nil {
+		return nil, err.Error()
+	}
 
 	sum, err := FileSHA256(path)
 	if err != nil {
@@ -262,6 +287,7 @@ func recordPatchedAP(payload interface{}) (interface{}, string) {
 	}
 
 	s.SetArtifact("patchedAP", path)
+	s.Approval = nil
 	s.SetProvenance("patchedAPSHA256", sum)
 	if err := s.Advance(StagePatchedAP); err != nil {
 		return nil, err.Error()
@@ -299,10 +325,21 @@ func approveFlash(payload interface{}) (interface{}, string) {
 	if s.Stage == StageFailed {
 		return nil, fmt.Sprintf("the session failed (%s); start a new run", s.Failure)
 	}
+	if !s.Reached(StagePatchedAP) {
+		return nil, "a validated patched AP is required"
+	}
+	report := RunPreflight(s)
+	if !report.OK {
+		return nil, "preflight failed: " + strings.Join(report.Blockers, "; ")
+	}
+	fingerprint, err := flashFingerprint(s)
+	if err != nil {
+		return nil, err.Error()
+	}
 	if err := s.Advance(StagePreflightOK); err != nil {
 		return nil, err.Error()
 	}
-	if err := s.GrantApproval(by, s.Artifact("patchedAP")); err != nil {
+	if err := s.GrantApproval(by, fingerprint); err != nil {
 		return nil, err.Error()
 	}
 	if err := s.Advance(StageApprovedFlash); err != nil {
@@ -336,13 +373,13 @@ func flashPlan(payload interface{}) (interface{}, string) {
 		return nil, err.Error()
 	}
 	return map[string]interface{}{
-		"ok":           true,
-		"command":      plan.CommandLine(),
-		"engine":       plan.EnginePath,
+		"ok":            true,
+		"command":       plan.CommandLine(),
+		"engine":        plan.EnginePath,
 		"engineVersion": plan.EngineVer,
-		"installMode":  plan.InstallMode,
-		"executed":     false,
-		"message":      "This is the command that would run. Nothing has been flashed.",
+		"installMode":   plan.InstallMode,
+		"executed":      false,
+		"message":       "This is the command that would run. Nothing has been flashed.",
 	}, ""
 }
 
@@ -381,11 +418,23 @@ func verifyRoot(deviceID string) (interface{}, string) {
 	if deviceID == "" {
 		return nil, "deviceID is required"
 	}
-	out, stderr, err := runAdb("-s", deviceID, "shell", "su -c id")
+	out, stderr, err := runAdb("-s", deviceID, "shell", "su", "-c", "id")
 	if err != nil && out == "" {
 		return map[string]interface{}{"rooted": false, "message": "ADB query failed: " + stderr}, ""
 	}
-	rooted := strings.Contains(out, "uid=0")
+	rooted := rootIdentity(out)
+	if rooted {
+		if s := LoadSession(); s != nil && s.Serial == deviceID && s.Stage == StageWaitingBoot {
+			s.Provenance["rootVerifiedAt"] = time.Now().Format(time.RFC3339)
+			s.Provenance["rootProof"] = strings.TrimSpace(out)
+			if err := s.Advance(StageVerifying); err != nil {
+				return nil, err.Error()
+			}
+			if err := s.Advance(StageRooted); err != nil {
+				return nil, err.Error()
+			}
+		}
+	}
 	return map[string]interface{}{
 		"rooted":  rooted,
 		"raw":     out,

@@ -1,16 +1,9 @@
 {
     "_comment": [
-        "Firmware metadata for AutoRoot. This file records what a package must",
-        "look like for a given phone, not where to blindly download it from.",
-        "",
-        "The previous version of this file listed Google Drive links of 0.01-0.16 GB.",
-        "Those were not Samsung firmware: a real SM-A065F package is about 5.81 GB and",
-        "contains AP/BL/CP/CSC .tar.md5 members. Any entry without a verified source is",
-        "marked so and is never auto-downloaded.",
-        "",
-        "sourceType values:",
-        "  samsung-fus  fetched from Samsung's Firmware Update Server via samloader-rs",
-        "  manual       a file the operator supplied; still fully validated on arrival"
+        "PoC metadata, not a vendor signature or universal compatibility claim.",
+        "Local operator file overrides: setup/firmware-db.local.json (ignored), or AUTOROOT_DATABASE.",
+        "Relative localPath values resolve against the project containing setup/. No firmware is shipped.",
+        "Only the listed SM-A065F configuration has live PoC evidence. Network download is untested."
     ],
     "devices": [
         {
@@ -20,7 +13,7 @@
             "device": "a06xx",
             "firmware": [
                 {
-                    "sourceType": "samsung-fus",
+                    "sourceType": "manual",
                     "region": "XID",
                     "pda": "A065FXXS4AYE2",
                     "csc": "A065FOLE4AYE2",
@@ -29,20 +22,21 @@
                     "androidVersion": "14",
                     "securityPatch": "2025-04-01",
                     "bootloaderBinary": "4",
-                    "expectedSizeBytes": 6239020544,
-                    "expectedSizeHuman": "5.81 GB",
-                    "requiredSlots": ["AP", "BL", "CP", "CSC"],
-                    "md5": "",
+                    "expectedSizeBytes": 6240786934,
+                    "localPath": "firmware/SM-A065F/SM-A065F_1_20250513151550_u4gbht1wk2_fac.zip",
+                    "requiredSlots": [
+                        "AP",
+                        "BL",
+                        "CP",
+                        "CSC"
+                    ],
                     "sha256": "",
-                    "verificationStatus": "metadata-known-binary-unverified",
+                    "verificationStatus": "metadata-known-package-validation-required",
                     "notes": [
-                        "This is the build currently installed on the phone, so it is the",
-                        "known-good target and the newest revision is A065FXXS9CZA1.",
-                        "No trusted package digest has been recorded yet, so the internal",
-                        ".tar.md5 checks are the primary integrity gate and a missing",
-                        "package digest is reported as a warning, not a silent pass.",
-                        "Never select a revision below binary 4: Samsung anti-rollback",
-                        "rejects the downgrade and the package would not install."
+                        "Exact historical test build, not a latest-firmware recommendation.",
+                        "Embedded MD5 and ZIP CRC are integrity gates, not vendor signature authentication.",
+                        "The archive must be supplied locally; there is no verified network URL or independently trusted package digest in this record.",
+                        "Check the actual device rollback binary; never downgrade based on this example."
                     ]
                 }
             ]
