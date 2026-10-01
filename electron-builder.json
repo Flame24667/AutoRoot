@@ -3,11 +3,15 @@
     "productName": "AutoRoot",
     "files": [
         "electron/**/*",
-        "frontend/dist/**/*"
+        "frontend/dist/**/*",
+        "frontend/preload.js"
     ],
     "extraResources": [
         "bin/*",
-        "odin/**/*",
+        {
+            "from": "Tools",
+            "to": "Tools"
+        },
         "setup/firmware-db.json",
         "scripts/firmware-installer.ps1",
         "scripts/gdown.exe",

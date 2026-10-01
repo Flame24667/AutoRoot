@@ -10,7 +10,6 @@ function App() {
   const [firmwareStatus, setFirmwareStatus] = useState('idle');
   const [rootState, setRootState] = useState('idle');
   const [rootLog, setRootLog] = useState('');
-  const [isDragging, setIsDragging] = useState(false);
   const [dropMsg, setDropMsg] = useState('');
   const [patchStep, setPatchStep] = useState('idle'); // 'idle', 'waiting', 'pulling'
   const [hasError, setHasError] = useState(false);
@@ -21,6 +20,16 @@ function App() {
   const rootLogRef = useRef(null);
   const isRootingRef = useRef(false);
   const fileInputRef = useRef(null);
+
+  const safeGetFileName = (filePath) => {
+    try {
+      if (!filePath) return 'Unknown';
+      return filePath.split(/[\\/]/).pop();
+    } catch (e) {
+      console.error('getFileName error:', e);
+      return 'Error';
+    }
+  };
 
   // --- CONNECTION LOGIC ---
   const checkDeviceConnection = async () => {
@@ -81,7 +90,7 @@ function App() {
 
         setFirmwareStatus('checking');
         const fwRes = await window.goAPI.call('checkFirmware', {
-          model: info.model, device: info.device
+          model: info.model, device: info.device, brand: info.brand
         });
         setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
 
@@ -103,87 +112,34 @@ function App() {
   };
 
   // --- FILE HANDLERS ---
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
-  const handleDrop = async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    setDropMsg('📦 Processing dropped files...');
-
-    const files = Array.from(e.dataTransfer.files);
-    const zips = files.filter(f => f.path?.endsWith('.zip'));
-
-    if (zips.length === 0) {
-      setDropMsg('❌ Only .zip firmware files are supported.');
-      setTimeout(() => setDropMsg(''), 3000);
+  const handleFileSelect = async () => {
+    if (!window.electronAPI?.selectFirmware) {
+      alert('️ App config error: File picker bridge missing. Restart the app.');
       return;
     }
 
-    await processFirmwareFiles(zips);
-  };
-
-  const handleFileSelect = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    if (!file.path.endsWith('.zip')) {
-      alert('Please select a .zip firmware file');
-      return;
-    }
-    
-    await processFirmwareFiles([file]);
-    
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const processFirmwareFiles = async (files) => {
-    let successCount = 0;
-    for (const file of files) {
-      try {
-        const result = await window.goAPI.call('handleDroppedFirmware', { filePath: file.path });
-        if (result?.success) successCount++;
-      } catch (err) {
-        console.error('Processing failed:', err);
+    setDropMsg('📂 Opening file picker...');
+    try {
+      const filePath = await window.electronAPI.selectFirmware();
+      if (!filePath) {
+        setDropMsg('❌ Cancelled');
+        setTimeout(() => setDropMsg(''), 3000);
+        return;
       }
-    }
 
-    if (successCount > 0) {
-      setDropMsg(`✅ Added ${successCount} firmware file(s)!`);
+      setDropMsg('📦 Processing...');
+      const res = await window.goAPI.call('handleDroppedFirmware', { filePath });
       
-      // Force refresh firmware status
-      if (device) {
-        setTimeout(async () => {
-          try {
-            const fwRes = await window.goAPI.call('checkFirmware', { 
-              model: device.model, 
-              device: device.device 
-            });
-            setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
-          } catch (err) {
-            setFirmwareStatus('available');
-          }
-        }, 500);
-      } else {
+      if (res?.success) {
+        setDropMsg('✅ Firmware added!');
         setFirmwareStatus('available');
+      } else {
+        setDropMsg(`❌ ${res?.error || 'Failed'}`);
       }
-    } else {
-      setDropMsg('❌ Failed to process files.');
+    } catch (err) {
+      setDropMsg(`❌ ${err.message}`);
     }
-    setTimeout(() => setDropMsg(''), 4000);
+    setTimeout(() => setDropMsg(''), 5000);
   };
 
   const getFileName = (filePath) => {
@@ -200,7 +156,7 @@ function App() {
     
     try {
       const fwRes = await window.goAPI.call('checkFirmware', {
-        model: device.model, device: device.device
+        model: device.model, device: device.device, brand: device.brand
       });
       
       if (!fwRes.available || !fwRes.files || fwRes.files.length === 0) {
@@ -267,15 +223,17 @@ function App() {
       
       setRootLog(prev => prev + `✅ Found all firmware files\n\n`);
 
-      // Transfer AP
-      setRootLog(prev => prev + '📤 Transferring AP to phone...\n');
+      // Check for the AP on the connected phone before transferring it.
+      setRootLog(prev => prev + '🔍 Checking whether AP is already on phone...\n');
       const transferRes = await window.goAPI.call('transferFileToDevice', {
-        filePath: apFile, destination: '/sdcard/Download/AP_file.tar'
+        deviceID: device.serial,
+        filePath: apFile,
+        destination: '/sdcard/Download/AP_file.tar'
       });
       if (!transferRes?.success) throw new Error('Transfer failed. Check USB connection.');
 
       setRootLog(prev => prev + 
-        '✅ AP transferred\n\n' +
+        (transferRes.alreadyExists ? '✅ AP already on phone\n\n' : '✅ AP transferred\n\n') +
         '📲 ON PHONE:\n' +
         '1. Open Magisk → Install → Select & Patch\n' +
         '2. Choose "AP_file.tar"\n' +
@@ -323,28 +281,45 @@ function App() {
       setRootLog(prev => prev + '\n👉 Press Volume UP on phone\n⏳ Waiting...\n');
       await new Promise(r => setTimeout(r, 15000));
       
-      setRootLog(prev => prev + '\n🔥 Flashing with Odin...\nDO NOT DISCONNECT!\n');
-      const odinRes = await window.goAPI.call('odinFlash', {
-        deviceID: device.serial,
-        apFile: patchedAp,
-        blFile: firmwareFiles.find(f=>f.includes('BL_')),
-        cpFile: firmwareFiles.find(f=>f.includes('CP_')),
-        cscFile: firmwareFiles.find(f=>f.includes('CSC_')&&!f.includes('HOME'))
-      });
-      
-      if (odinRes?.success) {
-        setRootState('success');
-        setRootLog(prev => prev + `\n\n✅ ${odinRes.message}\nDevice will reboot.`);
-        setDevice(prev => ({...prev, rooted: true}));
-      } else {
-        setRootState('error');
-        setRootLog(prev => prev + `\n\n❌ ${odinRes.message || 'Odin failed'}`);
-      }
+      const odinMsg = await window.goAPI.call('launchOdinGUI', { apFile: patchedAp });
+      setRootLog(prev => prev + `\n🪟 ${odinMsg}\n\n` +
+        '📲 IN ODIN:\n' +
+        '1. Wait until ID:COM turns blue (device detected)\n' +
+        '2. Click "AP" and select the patched file above\n' +
+        '3. Keep "Auto Reboot" and "F.Reset Time" checked\n' +
+        '4. Click "Start" and wait for PASS! (green)\n\n' +
+        '⏳ Tap the button below once Odin finishes →'
+      );
+      setPatchStep('odin');
     } catch (err) {
+      isRootingRef.current = false;
       setHasError(true);
       setRootState('error');
       setPatchStep('idle'); // 🔑 Reset on error too
       setRootLog(prev => prev + `\n\n❌ ${err.message}`);
+    }
+  };
+
+  const handleVerifyRoot = async () => {
+    setPatchStep('verifying');
+    setRootLog(prev => prev + '\n🔎 Checking for root after flash...\n');
+
+    try {
+      const res = await window.goAPI.call('verifyRootAfterFlash', {});
+      if (res?.rooted) {
+        setRootState('success');
+        setRootLog(prev => prev + `\n✅ ${res.message}`);
+        setDevice(prev => ({ ...prev, rooted: true }));
+      } else {
+        setRootState('error');
+        setRootLog(prev => prev + `\n⚠️ ${res.message}`);
+      }
+    } catch (err) {
+      setRootState('error');
+      setRootLog(prev => prev + `\n❌ ${err.message}`);
+    } finally {
+      setPatchStep('idle');
+      isRootingRef.current = false;
     }
   };
 
@@ -366,7 +341,7 @@ function App() {
         
         setFirmwareStatus('checking');
               const fwRes = await window.goAPI.call('checkFirmware', { 
-          model: info.model, device: info.device
+              model: info.model, device: info.device, brand: info.brand
               });
               setFirmwareStatus(fwRes.available ? 'available' : 'unavailable');
         
@@ -405,6 +380,10 @@ function App() {
       @keyframes pulse {
         0%, 100% { transform: scale(1); }
         50% { transform: scale(1.02); }
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translate(-50%, 10px); }
+        to { opacity: 1; transform: translate(-50%, 0); }
       }
     `;
     document.head.appendChild(styleSheet);
@@ -495,30 +474,11 @@ function App() {
       lineHeight: '1.6',
       minHeight: '100px'
     },
-    dropOverlay: {
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      background: 'rgba(15, 23, 42, 0.9)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: '#38bdf8', fontSize: '1.5rem', fontWeight: '600',
-      border: '4px dashed #38bdf8', pointerEvents: 'none'
-    }
   };
 
   // --- RENDER ---
   return (
-    <div 
-      style={styles.container} 
-      onDragOver={handleDragOver} 
-      onDragLeave={handleDragLeave} 
-      onDrop={handleDrop}
-    >
-      {/* Drop Overlay */}
-      {isDragging && (
-        <div style={styles.dropOverlay}>
-          📥 Drop Firmware .zip Here
-        </div>
-      )}
-
+    <div style={styles.container}>
       <header style={styles.header}>
         <h1 style={styles.title}>🔓 AutoRoot</h1>
         <p style={styles.subtitle}>Secure Android Root Automation</p>
@@ -576,19 +536,12 @@ function App() {
                     border: '2px dashed #475569'
                   }}>
                     <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '1rem' }}>
-                      📁 No firmware found for this device
+                      📁 No firmware found for this device. Download the file and rename it to {device.brand}_{device.model}_{device.buildVersion}_{device.androidVersion}_{device.binaryBit}.zip
                     </p>
                     
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".zip"
-                      onChange={handleFileSelect}
-                      style={{ display: 'none' }}
-                    />
-                    
+                    {/* 🔑 NATIVE DIALOG BUTTON */}
                     <button 
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={handleFileSelect}
                       style={{
                         ...styles.primaryBtn,
                         background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
@@ -598,9 +551,6 @@ function App() {
                       📂 Select Firmware File
                     </button>
                     
-                    <p style={{ color: '#64748b', fontSize: '0.8rem', margin: '0.5rem 0 0 0' }}>
-                      or drag & drop .zip file anywhere
-                    </p>
                   </div>
                 )}
 
@@ -654,6 +604,26 @@ function App() {
                 {patchStep === 'pulling' && (
                   <div style={{textAlign:'center', marginTop:'1rem', color:'#94a3b8'}}>
                     ⏳ Pulling patched file from phone...
+                  </div>
+                )}
+
+                {patchStep === 'odin' && (
+                  <button
+                    onClick={handleVerifyRoot}
+                    style={{
+                      ...styles.primaryBtn,
+                      background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                      marginTop: '1rem',
+                      animation: 'pulse 1.5s infinite'
+                    }}
+                  >
+                    ✅ Odin Finished, Verify Root
+                  </button>
+                )}
+
+                {patchStep === 'verifying' && (
+                  <div style={{textAlign:'center', marginTop:'1rem', color:'#94a3b8'}}>
+                    ⏳ Waiting for device to boot and verifying root...
                   </div>
                 )}
                 {/* Action Buttons */}
@@ -710,11 +680,22 @@ function App() {
       {/* Drop Message Toast */}
       {dropMsg && (
         <div style={{
-          position: 'fixed', bottom: '2rem', left: '50%', transform: 'translateX(-50%)',
-          padding: '0.75rem 1.5rem', background: '#1e293b', borderRadius: '10px',
-          color: dropMsg.includes('✅') ? '#22c55e' : '#ef4444',
-          border: '1px solid #334155', fontSize: '0.9rem', zIndex: 1001,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+          position: 'fixed', 
+          bottom: '2rem', 
+          left: '50%', 
+          transform: 'translateX(-50%)',
+          padding: '1rem 1.5rem', 
+          background: dropMsg.includes('✅') ? '#065f46' : dropMsg.includes('') ? '#7f1d1d' : '#1e293b',
+          color: '#f8fafc',
+          borderRadius: '12px',
+          border: `1px solid ${dropMsg.includes('✅') ? '#22c55e' : dropMsg.includes('❌') ? '#ef4444' : '#475569'}`,
+          fontSize: '0.95rem', 
+          fontWeight: '500',
+          zIndex: 9999,
+          boxShadow: '0 8px 30px rgba(0,0,0,0.4)',
+          textAlign: 'center',
+          minWidth: '280px',
+          animation: 'fadeIn 0.3s ease'
         }}>
           {dropMsg}
         </div>

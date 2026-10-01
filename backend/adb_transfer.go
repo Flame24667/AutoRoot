@@ -7,21 +7,40 @@ import (
 	"strings"
 )
 
-func transferFileToDevice(srcPath, destPath string) (map[string]interface{}, string) {
+func transferFileToDevice(deviceID, srcPath, destPath string) (map[string]interface{}, string) {
 	// Verify source exists
 	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
 		return nil, fmt.Sprintf("File not found: %s", srcPath)
 	}
 
+	if deviceID != "" {
+		_, stderr, err := runAdb("-s", deviceID, "shell", "test", "-f", destPath)
+		if err == nil {
+			return map[string]interface{}{
+				"success":       true,
+				"alreadyExists": true,
+				"message":       fmt.Sprintf("File already exists at %s", destPath),
+			}, ""
+		}
+		if stderr != "" {
+			return nil, fmt.Sprintf("ADB file check failed: %v\n%s", err, stderr)
+		}
+	}
+
 	// Use ADB push
-	_, stderr, err := runAdb("push", srcPath, destPath)
+	args := []string{"push", srcPath, destPath}
+	if deviceID != "" {
+		args = append([]string{"-s", deviceID}, args...)
+	}
+	_, stderr, err := runAdb(args...)
 	if err != nil {
 		return nil, fmt.Sprintf("ADB push failed: %v\n%s", err, stderr)
 	}
 
 	return map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Transferred to %s", destPath),
+		"success":       true,
+		"alreadyExists": false,
+		"message":       fmt.Sprintf("Transferred to %s", destPath),
 	}, ""
 }
 
@@ -29,7 +48,7 @@ func getPatchedFileFromDevice(srcPath string) (map[string]interface{}, string) {
 	// Create temp directory for patched file
 	tempDir := filepath.Join(os.TempDir(), "autoroot_patched")
 	os.MkdirAll(tempDir, 0755)
-	
+
 	destPath := filepath.Join(tempDir, "magisk_patched.tar")
 
 	// Use ADB pull
@@ -39,9 +58,9 @@ func getPatchedFileFromDevice(srcPath string) (map[string]interface{}, string) {
 	}
 
 	return map[string]interface{}{
-		"success":    true,
-		"localPath":  destPath,
-		"message":    "Patched file retrieved successfully",
+		"success":   true,
+		"localPath": destPath,
+		"message":   "Patched file retrieved successfully",
 	}, ""
 }
 
@@ -49,7 +68,7 @@ func getPatchedFileFromDevice(srcPath string) (map[string]interface{}, string) {
 func getLatestMagiskPatchedFile(deviceID string) (map[string]interface{}, string) {
 	// List files matching magisk_patched*, sorted newest first
 	out, _, _ := runAdb("-s", deviceID, "shell", "ls", "-1", "-t", "/sdcard/Download/magisk_patched*")
-	
+
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	var validFiles []string
 	for _, line := range lines {
